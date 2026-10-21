@@ -47,6 +47,20 @@ def _plant_cards(prefix: str, known: set[str]) -> list[dict[str, Any]]:
     """Build the cards of a plant's page, mirroring the official app."""
     cards: list[dict[str, Any]] = []
 
+    # El estado de cada flujo: de donde viene la energia y donde va.
+    flows = _entities_of(prefix, known, "plant_grid_flow")
+    flows += _entities_of(prefix, known, "plant_pv_flow")
+    flows += _entities_of(prefix, known, "plant_battery_flow")
+    if flows:
+        cards.append(
+            {
+                "type": "entities",
+                "title": "Estado de los flujos",
+                "show_header_toggle": False,
+                "entities": flows,
+            }
+        )
+
     # "Datos de Hoy": PV, carga, descarga, entrada y salida de red.
     hoy = _entities_of(prefix, known, "plant_pv_energy_today")
     hoy += _entities_of(prefix, known, "plant_load_energy_today")

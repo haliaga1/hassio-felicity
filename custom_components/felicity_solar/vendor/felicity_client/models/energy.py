@@ -56,6 +56,7 @@ class EnergyFlow:
     load_power: float | None = None
     battery_power: float | None = None
     grid_power: float | None = None
+    grid_ac_input_power: float | None = None
     generator_power: float | None = None
     smart_load_power: float | None = None
     values: Mapping[str, float] = field(default_factory=dict)
@@ -87,6 +88,8 @@ class EnergyFlow:
             load_power=pick("load"),
             battery_power=pick("battery"),
             grid_power=pick("grid"),
+            # La entrada en CA: es el consumo desde la red del inversor.
+            grid_ac_input_power=to_float(payload.get("acTtlInPower")),
             generator_power=pick("generator"),
             smart_load_power=pick("smart_load"),
             values=values,

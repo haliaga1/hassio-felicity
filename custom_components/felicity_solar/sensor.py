@@ -62,6 +62,10 @@ async def async_setup_entry(
         FelicityPlantEnergySensor(coordinator, plant_name, description)
         for description in PLANT_ENERGY_DESCRIPTIONS
     )
+    entities.extend(
+        FelicityFlowSensor(coordinator, plant_name, description)
+        for description in FLOW_DESCRIPTIONS
+    )
 
     # Los sensores agregados se crean una sola vez para toda la instancia:
     # el Energy Dashboard de Home Assistant es uno solo, asi que las plantas
@@ -439,4 +443,152 @@ class FelicityTotalSensor(CoordinatorEntity[FelicityCoordinator], SensorEntity):
             name = data.plant_details.name if data.plant_details else coordinator.plant_id
             value = _plant_value(data, self.entity_description.attribute)
             attributes[str(name)] = value
+        return attributes
+
+
+DEAD_BAND = 5.0
+
+#: The states of a flow.
+IDLE = "reposo"
+IMPORTING = "importando"
+EXPORTING = "exportando"
+PRODUCING = "produciendo"
+CHARGING = "cargando"
+DISCHARGING = "descargando"
+
+GRID_STATES = [IDLE, IMPORTING, EXPORTING]
+PV_STATES = [IDLE, PRODUCING]
+BATTERY_STATES = [IDLE, CHARGING, DISCHARGING]
+
+
+@dataclass(frozen=True, kw_only=True)
+class FelicityFlowEntityDescription(SensorEntityDescription):
+    """A flow state sensor description."""
+
+    #: The attribute of the plant data that holds the power of the flow.
+    power_attribute: str
+    #: The states the sensor can take.
+    options: tuple[str, ...]
+    #: How the power maps to a state. ``+1`` for a flow that grows with the
+    #: power, ``-1`` for one that shrinks.
+    direction: int = 1
+
+
+def _grid_state(power: float | None) -> str:
+    """The state of the grid: importing, exporting or at rest."""
+    if power is None or abs(power) <= DEAD_BAND:
+        return IDLE
+    return IMPORTING if power > 0 else EXPORTING
+
+
+def _pv_state(power: float | None) -> str:
+    """The state of the photovoltaic production."""
+    if power is None or abs(power) <= DEAD_BAND:
+        return IDLE
+    return PRODUCING
+
+
+def _battery_state(power: float | None) -> str:
+    """The state of the battery.
+
+    The sign convention was confirmed on a live installation: a **positive**
+    power means the battery is **charging**.
+    """
+    if power is None or abs(power) <= DEAD_BAND:
+        return IDLE
+    return CHARGING if power > 0 else DISCHARGING
+
+
+FLOW_DESCRIPTIONS: tuple[FelicityFlowEntityDescription, ...] = (
+    FelicityFlowEntityDescription(
+        key="plant_grid_flow",
+        translation_key="plant_grid_flow",
+        device_class=SensorDeviceClass.ENUM,
+        options=tuple(GRID_STATES),
+        power_attribute="grid_power",
+    ),
+    FelicityFlowEntityDescription(
+        key="plant_pv_flow",
+        translation_key="plant_pv_flow",
+        device_class=SensorDeviceClass.ENUM,
+        options=tuple(PV_STATES),
+        power_attribute="pv_power",
+    ),
+    FelicityFlowEntityDescription(
+        key="plant_battery_flow",
+        translation_key="plant_battery_flow",
+        device_class=SensorDeviceClass.ENUM,
+        options=tuple(BATTERY_STATES),
+        power_attribute="battery_power",
+    ),
+)
+
+#: The sensor that computes the state of each flow.
+_STATE_FUNCTIONS: dict[str, Callable[[float | None], str]] = {
+    "plant_grid_flow": _grid_state,
+    "plant_pv_flow": _pv_state,
+    "plant_battery_flow": _battery_state,
+}
+
+
+class FelicityFlowSensor(FelicityEntity, SensorEntity):
+    """A sensor that tells in which direction a flow is going."""
+
+    entity_description: FelicityFlowEntityDescription
+
+    def __init__(
+        self,
+        coordinator: FelicityCoordinator,
+        plant_name: str,
+        description: FelicityFlowEntityDescription,
+    ) -> None:
+        """Initialise the flow sensor."""
+        from .vendor.felicity_client.models.common import Device, ProductType
+
+        device = Device(
+            serial_number=f"plant-{coordinator.plant_id}",
+            product_type=ProductType.UNKNOWN,
+            plant_name=plant_name,
+        )
+        super().__init__(coordinator, device, description)
+        self._attr_unique_id = f"{coordinator.plant_id}_{description.key}"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """The virtual device that groups the plant level sensors."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, f"plant-{self.coordinator.plant_id}")},
+            manufacturer="Felicity Solar",
+            model="FSolar plant",
+            name=self._device.plant_name or "Felicity Solar",
+        )
+
+    @property
+    def available(self) -> bool:
+        """A flow sensor is available as soon as the coordinator is."""
+        return self.coordinator.last_update_success
+
+    @property
+    def native_value(self) -> str | None:
+        """The state of the flow."""
+        flow = self.coordinator.primary_flow
+        if flow is None:
+            return None
+        power = getattr(flow, self.entity_description.power_attribute, None)
+        function = _STATE_FUNCTIONS.get(self.entity_description.key)
+        if function is None:
+            return None
+        return function(power)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Expose the power behind the state."""
+        flow = self.coordinator.primary_flow
+        attributes: dict[str, Any] = {
+            "plant_id": self.coordinator.plant_id,
+            "plant_name": self._device.plant_name,
+            "source": self.data.source,
+        }
+        if flow is not None:
+            attributes["power"] = getattr(flow, self.entity_description.power_attribute, None)
         return attributes

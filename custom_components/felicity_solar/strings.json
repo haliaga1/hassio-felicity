@@ -217,6 +217,39 @@
       },
       "plant_load_energy_total": {
         "name": "Plant load energy total"
+      },
+      "plant_grid_flow": {
+        "name": "Grid flow",
+        "state": {
+          "reposo": "At rest",
+          "importando": "Importing",
+          "exportando": "Exporting",
+          "produciendo": "Producing",
+          "cargando": "Charging",
+          "descargando": "Discharging"
+        }
+      },
+      "plant_pv_flow": {
+        "name": "PV flow",
+        "state": {
+          "reposo": "At rest",
+          "importando": "Importing",
+          "exportando": "Exporting",
+          "produciendo": "Producing",
+          "cargando": "Charging",
+          "descargando": "Discharging"
+        }
+      },
+      "plant_battery_flow": {
+        "name": "Battery flow",
+        "state": {
+          "reposo": "At rest",
+          "importando": "Importing",
+          "exportando": "Exporting",
+          "produciendo": "Producing",
+          "cargando": "Charging",
+          "descargando": "Discharging"
+        }
       }
     },
     "binary_sensor": {
