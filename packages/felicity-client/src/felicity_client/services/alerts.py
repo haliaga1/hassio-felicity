@@ -21,9 +21,25 @@ class AlertService:
     def __init__(self, http: FelicityHTTP) -> None:
         self._http = http
 
-    async def list_alerts(self, device_sn: str | None = None) -> list[Alert]:
-        """Return the active warnings, optionally for a single device."""
-        payload: dict[str, Any] = {}
+    async def list_alerts(
+        self,
+        device_sn: str | None = None,
+        *,
+        days: int = 30,
+        page_size: int = 50,
+    ) -> list[Alert]:
+        """Return the warnings of the account, optionally for a single device.
+
+        The endpoint requires a page number, a page size and a date range;
+        omitting them is answered with a validation error, not with an empty
+        list.
+        """
+        payload: dict[str, Any] = {
+            "pageNum": 1,
+            "pageSize": page_size,
+            "leftDate": _date_offset(-abs(days)),
+            "rightDate": _date_offset(0),
+        }
         if device_sn:
             payload["deviceSn"] = device_sn
 
@@ -35,7 +51,12 @@ class AlertService:
 
     async def list_alert_groups(self, device_sn: str | None = None) -> list[AlertGroup]:
         """Return the warnings grouped by device."""
-        payload: dict[str, Any] = {}
+        payload: dict[str, Any] = {
+            "pageNum": 1,
+            "pageSize": 50,
+            "leftDate": _date_offset(-30),
+            "rightDate": _date_offset(0),
+        }
         if device_sn:
             payload["deviceSn"] = device_sn
 
@@ -62,3 +83,14 @@ class AlertService:
 def _as_mapping(value: Any) -> Mapping[str, Any]:
     """Narrow an arbitrary payload to a mapping."""
     return value if isinstance(value, Mapping) else {}
+
+
+def _date_offset(days: int) -> str:
+    """Return a date offset from today, as ``YYYY-MM-DD HH:MM:SS``.
+
+    The endpoint rejects a bare ``YYYY-MM-DD``: it answers
+    ``leftDate: must not be null`` even when the field is present.
+    """
+    from datetime import datetime, timedelta
+
+    return (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")

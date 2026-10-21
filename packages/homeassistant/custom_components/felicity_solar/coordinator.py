@@ -26,7 +26,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from felicity_client import (
+from .vendor.felicity_client import (
     Alert,
     Device,
     EnergyFlow,
@@ -34,6 +34,7 @@ from felicity_client import (
     FelicityClient,
     FelicityError,
     FelicityTokenExpiredError,
+    PlantDetails,
     Snapshot,
 )
 
@@ -61,6 +62,7 @@ class FelicityData:
     devices: dict[str, Device] = field(default_factory=dict)
     snapshots: dict[str, Snapshot] = field(default_factory=dict)
     flows: dict[str, EnergyFlow] = field(default_factory=dict)
+    plant_details: PlantDetails | None = None
     alerts: list[Alert] = field(default_factory=list)
     source: str = "rest"
     last_update: Any = None
@@ -183,10 +185,18 @@ class FelicityCoordinator(DataUpdateCoordinator[FelicityData]):
             except FelicityError as exc:
                 _LOGGER.debug("Could not read the alerts: %s", exc)
 
+        plant_details: PlantDetails | None = None
+        if self.plant_id:
+            try:
+                plant_details = await self.client.get_plant_details(self.plant_id)
+            except FelicityError as exc:
+                _LOGGER.debug("Could not read the plant details: %s", exc)
+
         data = FelicityData(
             devices={device.serial_number: device for device in devices},
             snapshots=snapshots,
             flows=flows,
+            plant_details=plant_details,
             alerts=alerts,
             source="websocket" if self._ws_connected else "rest",
             last_update=self.last_update_success,

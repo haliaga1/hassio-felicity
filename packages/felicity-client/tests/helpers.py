@@ -1,4 +1,10 @@
-"""Test helpers shared across the suite."""
+"""Test helpers shared across the suite.
+
+The fixtures are captured from the live FSolar API and redacted. They hold
+the **unwrapped** ``data`` payload, because that is what the service layer
+sees; :func:`envelope` puts them back into the ``{code, data, message}``
+envelope the HTTP layer expects.
+"""
 
 from __future__ import annotations
 

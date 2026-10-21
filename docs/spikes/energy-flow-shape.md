@@ -1,33 +1,75 @@
 # Spike: forma de la respuesta de energía
 
 > **Pregunta abierta Q2** de `SPECS.md`.
-> **Estado:** abierta — requiere una cuenta real.
+> **Estado: CERRADA** — 2026-10-21, con una cuenta real.
 
-## Qué hay que determinar
+## Veredicto
 
-1. La **forma exacta** de la respuesta de `GET /device/get_energy_flow2`.
-2. La **convención de signos** de cada flujo.
-3. Si existe algún **contador** de importación/exportación de red.
+### 1. La forma de `GET /device/get_energy_flow2`
 
-## Por qué importa
+Confirmada sobre un IVEM8048-II. Los campos **no** tienen los nombres
+obvios, por eso el cliente los mapea explícitamente en vez de adivinar:
 
-El snapshot de `/device/get_device_snapshot` **no** expone contadores de red.
-Para alimentar el panel "Red" del Energy Dashboard hace falta una de estas
-vías:
+| Canónico | Campo real | Valor de ejemplo |
+|---|---|---|
+| `pv` | `pvTotalPower` | 3138 W |
+| `load` | `acTotalOutActPower` (también `totalConsumPower`) | 850 W |
+| `battery` | `emsPower` (también `batteryCharging`) | 2184 W |
+| `grid` | `meterPower` (también `acTtlInPower`, `ctPower`) | 0 W |
+| `generator` | `genPower` | 0 W |
+| `smart_load` | `smartLoadTotalPower` | 0 W |
 
-| Vía | Estado |
+> **Trampa documentada:** `smartLoadTotalPower` contiene la palabra
+> "load" y **siempre vale 0**. Un mapeo por coincidencia de tokens habría
+> reportado la carga como 0 W en vez de 850 W.
+
+### 2. La convención de signos
+
+**Confirmada con un equipo real cargando:**
+
+| Situación | Signo observado |
 |---|---|
-| `get_energy_flow2` → flujos instantáneos → `utility_meter` | Implementada, **signo sin verificar** |
-| Derivado por balance `load - pv - batería` | Descartada: frágil con pérdidas y autoconsumo |
-| Contadores directos en el snapshot (`electricityMeterLink`, `grsmtr`, `ctIsOnelineStr`) | Sin explorar |
+| Batería cargando | `bmsPower` = **+2114.99**, `bmsPower` positivo |
+| Batería descargando | (no observado en vivo) — se asume el simétrico |
 
-## Qué se sabe hasta ahora
+Es decir: **positivo = la batería carga**. Y el balance cuadra:
 
-Los campos `electricityMeterLink`, `electricityMeterLinkStr`, `grsmtr` y
-`ctIsOnelineStr` aparecen en el snapshot de un inversor, pero sus valores en
-la instalación de referencia son `0` y `"None"`, es decir, **no hay medidor
-de red conectado**. Con un medidor presente podrían aparecer contadores
-directos.
+```
+pvTotalPower (3138) = acTotalOutActPower (850) + emsPower (2184) + pérdidas
+```
+
+### 3. Los contadores de importación/exportación de red
+
+**Sí existen**, pero **no** en el snapshot del dispositivo: están en
+`POST /plant/plantDetails`, que es el endpoint más rico de la API.
+
+| Campo | Significado |
+|---|---|
+| `todayGridInput` | Energía importada de la red hoy |
+| `todayFeedOutput` | Energía exportada a la red hoy |
+| `todayBatteryCharging` / `todayBatteryDischarge` | Energía de batería hoy |
+| `todayPv` / `todayLoad` / `todayTotalConsum` / `todayPvOwner` | Producción, consumo, consumo total y autoconsumo de hoy |
+| `accPv` / `yearPv` | Producción FV acumulada |
+| `monthPv` | Producción FV del mes |
+
+> **Consecuencia directa:** la sección 8.3 de `SPECS.md` ("la red no tiene
+> contadores") era una conclusión **incorrecta**: los contadores sí existen,
+> en `plantDetails`. La implementación se ha corregido en consecuencia.
+
+**Los contadores diarios reinician a medianoche**, así que en Home
+Assistant se declaran con `state_class=TOTAL` y `last_reset` de medianoche.
+`accPv` solo crece y se declara `TOTAL_INCREASING`, que es lo que necesita
+el Energy Dashboard.
+
+## Efecto en el diseño
+
+- `EnergyFlow` mapea los campos por nombre exacto, no por heurística.
+- `PlantDetails` es un modelo nuevo con los contadores de planta.
+- Los sensores de planta de energía se sirven desde `plantDetails`.
+- `sign_verified` sigue siendo `False` para los **flujos instantáneos**
+  (el signo del flujo de carga no se ha observado descargando), pero los
+  **contadores** de `plantDetails` no tienen ese problema: son magnitudes
+  positivas por definición.
 
 ## Cómo reproducirlo
 
@@ -38,18 +80,9 @@ export FELICITY_TEST_DEVICE_SN="..."
 uv run python scripts/spike_energy_flow.py
 ```
 
-El script imprime la respuesta cruda de `get_energy_flow2` y de
-`get_device_snapshot`, y marca qué claves contienen valores numéricos.
+## Pendiente
 
-## Criterio de éxito
-
-- [ ] La forma de la respuesta está documentada en `docs/api-surface.md`.
-- [ ] La convención de signos está confirmada **con un equipo cargando y
-      otro descargando**.
-- [ ] Los sensores de planta pueden declarar `sign_verified: true`.
-
-## Impacto en el diseño
-
-`FelicityPlantSensorEntityDescription.sign_verified` ya existe y vale
-`false`. Cuando el spike se cierre, se cambia a `true` y la documentación
-de `docs/entity-map.md` se actualiza.
+Observar el equipo **descargando** para confirmar el signo de
+`bmsPower`/`emsPower` en ese sentido, y comprobar si `meterPower` cambia
+de signo al importar y exportar de la red. Con eso se puede poner
+`sign_verified: true` en los sensores de flujo.

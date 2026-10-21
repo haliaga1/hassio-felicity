@@ -154,6 +154,36 @@
       },
       "plant_grid_power": {
         "name": "Plant grid power"
+      },
+      "plant_pv_energy_total": {
+        "name": "Plant PV energy total"
+      },
+      "plant_pv_energy_today": {
+        "name": "Plant PV energy today"
+      },
+      "plant_pv_energy_month": {
+        "name": "Plant PV energy this month"
+      },
+      "plant_load_energy_today": {
+        "name": "Plant load energy today"
+      },
+      "plant_grid_import_today": {
+        "name": "Plant grid import today"
+      },
+      "plant_grid_export_today": {
+        "name": "Plant grid export today"
+      },
+      "plant_battery_charging_today": {
+        "name": "Plant battery charging today"
+      },
+      "plant_battery_discharge_today": {
+        "name": "Plant battery discharge today"
+      },
+      "plant_self_consumption_today": {
+        "name": "Plant self consumption today"
+      },
+      "plant_rated_power": {
+        "name": "Plant rated power"
       }
     },
     "binary_sensor": {

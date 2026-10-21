@@ -5,6 +5,7 @@ from __future__ import annotations
 from .alerts import Alert, AlertGroup
 from .common import Device, DeviceType, Plant, ProductType
 from .energy import EnergyFlow
+from .plant_details import PlantDetails
 from .snapshot import (
     ACReadings,
     BatteryReadings,
@@ -25,6 +26,7 @@ __all__ = [
     "EnergyTotals",
     "PVReadings",
     "Plant",
+    "PlantDetails",
     "ProductType",
     "Snapshot",
     "ThermalReadings",

@@ -154,6 +154,36 @@
       },
       "plant_grid_power": {
         "name": "Potencia de red de la planta"
+      },
+      "plant_pv_energy_total": {
+        "name": "Energía FV total de la planta"
+      },
+      "plant_pv_energy_today": {
+        "name": "Energía FV de hoy de la planta"
+      },
+      "plant_pv_energy_month": {
+        "name": "Energía FV del mes de la planta"
+      },
+      "plant_load_energy_today": {
+        "name": "Energía de carga de hoy de la planta"
+      },
+      "plant_grid_import_today": {
+        "name": "Importación de red de hoy de la planta"
+      },
+      "plant_grid_export_today": {
+        "name": "Exportación de red de hoy de la planta"
+      },
+      "plant_battery_charging_today": {
+        "name": "Carga de batería de hoy de la planta"
+      },
+      "plant_battery_discharge_today": {
+        "name": "Descarga de batería de hoy de la planta"
+      },
+      "plant_self_consumption_today": {
+        "name": "Autoconsumo de hoy de la planta"
+      },
+      "plant_rated_power": {
+        "name": "Potencia nominal de la planta"
       }
     },
     "binary_sensor": {

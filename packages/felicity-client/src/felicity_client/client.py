@@ -22,6 +22,7 @@ from .http import FelicityHTTP
 from .models.alerts import Alert, AlertGroup
 from .models.common import Device, Plant
 from .models.energy import EnergyFlow
+from .models.plant_details import PlantDetails
 from .models.snapshot import Snapshot
 from .realtime import RealtimeService
 from .services.alerts import AlertService
@@ -119,6 +120,10 @@ class FelicityClient:
     async def get_plant(self, plant_id: str) -> Plant:
         """Return the details of one plant."""
         return await self._plants.get_plant(plant_id)
+
+    async def get_plant_details(self, plant_id: str) -> PlantDetails:
+        """Return the details and the energy counters of one plant."""
+        return await self._plants.get_plant_details(plant_id)
 
     async def list_devices(self, *, plant_id: str | None = None) -> list[Device]:
         """Return the devices of the account, optionally filtered by plant."""

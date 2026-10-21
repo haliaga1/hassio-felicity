@@ -1,41 +1,55 @@
 # Spike: autenticación del WebSocket
 
 > **Pregunta abierta Q1** de `SPECS.md`.
-> **Estado:** abierta — requiere una cuenta real.
+> **Estado: CERRADA** — 2026-10-21, con una cuenta real (2 plantas, 2×
+> IVEM8048-II + 2× FLA48100-EU).
 
-## Qué hay que determinar
+## Veredicto
 
-La web oficial abre el WebSocket con la **cookie de sesión del navegador**.
-Un cliente de servidor no tiene esa cookie. La pregunta es si el gateway
-acepta el handshake con la **cabecera `Authorization`** y nada más.
+**El WebSocket no es un transporte utilizable para este equipo.**
 
-## Por qué importa
-
-| Resultado | Consecuencia |
+| Comprobación | Resultado |
 |---|---|
-| **Aceptado** | El WebSocket es el transporte primario: datos en tiempo real sin polling. |
-| **Rechazado** | El tiempo real depende del polling REST (60 s por defecto) y el WebSocket queda como mejora opcional. |
+| Handshake en `wss://shine-api.felicitysolar.com/socket/energy-flow/{sn}` | ✅ Handshake correcto |
+| Token `Authorization` en el handshake | ✅ **Aceptado**: sin él, el gateway redirige a `/token_expiration` |
+| Path sin el prefijo `/socket` | ❌ `404 Invalid response status` |
+| Frames recibidos tras 75 s, socket de **dispositivo** | **0** |
+| Frames recibidos tras 75 s, socket de **planta** (`energy-plant-flow/{plantId}`) | **0** |
+| Formatos de suscripción probados | 4 (`plant:false`+collector, sin `plant`, `plant:true`, mínimo) |
+| Cabeceras REST añadidas (`lang`, `source`, `Node`) | Sin efecto |
 
-## Qué hace el cliente hoy
+## Lo que sí se aprendió
 
-`felicity_client/realtime.py` envía la cabecera `Authorization` en el
-handshake cuando hay un token disponible:
+1. **La URL base es `wss://shine-api.felicitysolar.com/socket`**, no
+   `wss://shine-api.felicitysolar.com`. Sin el prefijo `/socket` el
+   handshake responde 404, que es un error confuso.
+2. **El token se acepta en el handshake.** La web oficial reutiliza la
+   cookie del navegador, pero el gateway **también** valida la cabecera
+   `Authorization`: sin ella, redirige a `/token_expiration` igual que hace
+   con las peticiones REST.
+3. **La conexión se establece pero el servidor no empuja datos** para esta
+   combinación de inversor y colector. La propia web oficial contempla
+   esta situación: su vista de flujo comprueba el flag `connectWebsocket`
+   por dispositivo y, si no está, **cae a sondeo por polling**.
 
-```python
-async def _handshake_headers(self) -> dict[str, str]:
-    if self._token_provider is None:
-        return {}
-    try:
-        token = await self._token_provider()
-    except Exception:
-        return {}
-    return {"Authorization": token} if token else {}
-```
+## Consecuencia para el diseño
 
-Si el token no se puede obtener, el handshake se intenta **sin** cabeceras y
-la conexión se cierra — nunca se envía un token vacío.
+> **El sondeo REST es el camino garantizado. El WebSocket es una mejora
+> opcional, nunca la única fuente.**
 
-## Cómo reproducirlo
+Esto es exactamente lo que hace el coordinator:
+
+- el sondeo REST corre **siempre**, cada 60 s por defecto;
+- el WebSocket corre **en paralelo** y, si algún día el fabricante lo
+  habilita para este equipo, sus snapshots se fusionan sin cambiar nada
+  más;
+- si el socket no entrega nada, no pasa nada: el coordinator no depende
+  de él.
+
+El cliente no insiste: tras 10 intentos de reconexión con backoff
+exponencial, la tarea del WebSocket termina y solo queda el polling.
+
+## Reproducirlo
 
 ```bash
 export FELICITY_TEST_EMAIL="..."
@@ -43,22 +57,12 @@ export FELICITY_TEST_PASSWORD="..."
 uv run python scripts/spike_websocket_auth.py
 ```
 
-El script:
+El script prueba el handshake **con** y **sin** token, envía el comando de
+suscripción y espera 12 s a ver si llega un snapshot.
 
-1. hace login y obtiene el token;
-2. intenta el handshake **con** `Authorization`;
-3. intenta el handshake **sin** cabeceras;
-4. en cada caso envía el comando de suscripción y espera 10 s a ver si llega
-   un snapshot;
-5. imprime un veredicto.
+## Nota para el futuro
 
-## Criterio de éxito
-
-El spike está cerrado cuando el script se ha ejecutado contra una cuenta
-real y su salida está pegada en este documento.
-
-## Impacto en el diseño
-
-Ninguno: el `RealtimeService` ya degrada a polling REST si el socket no
-funciona, y el coordinator arranca una tarea por dispositivo. Este spike
-solo determina si el tiempo real es el camino por defecto o la excepción.
+Si alguien con un equipo **más nuevo** (un colector con push habilitado)
+reporta que sí recibe frames, la implementación ya está lista: basta con
+que el handshake acepte el token, que ya se verificó que lo hace. El
+único cambio sería confirmar el prefijo `/socket` para ese nodo.

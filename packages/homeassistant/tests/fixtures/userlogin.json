@@ -1,8 +1,7 @@
 {
   "code": 200,
   "data": {
-    "token": "Bearer_eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOjQxMDI0NDQ4MDAsInVzZXJOYW1lIjoiZml4dHVyZUBleGFtcGxlLmNvbSIsImlhdCI6MTcwMDAwMDAwMH0.Zml4dHVyZS1zaWduYXR1cmUtbm90LWEtcmVhbC1rZXk",
-    "userId": "fixture-user-id"
+    "token": "Bearer_fixture.token.value"
   },
   "message": "success"
 }

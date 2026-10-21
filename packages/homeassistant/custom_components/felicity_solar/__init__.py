@@ -14,7 +14,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
-from felicity_client import FelicityClient, StoredToken
+from .vendor.felicity_client import FelicityClient, StoredToken
 
 from .const import (
     API_URLS,

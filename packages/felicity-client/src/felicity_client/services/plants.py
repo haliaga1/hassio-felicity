@@ -8,6 +8,7 @@ from typing import Any
 
 from ..http import FelicityHTTP
 from ..models.common import Plant
+from ..models.plant_details import PlantDetails
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -21,7 +22,8 @@ def extract_list(data: Any) -> tuple[list[Mapping[str, Any]], int]:
     """Normalise the many shapes a paged FSolar response can take.
 
     Returns the rows and the reported total (``-1`` when the backend does not
-    report one).
+    report one). The total comes back as a **string** on some endpoints, so
+    it is coerced rather than trusted.
     """
     if data is None:
         return [], 0
@@ -35,10 +37,26 @@ def extract_list(data: Any) -> tuple[list[Mapping[str, Any]], int]:
         candidate = data.get(key)
         if isinstance(candidate, list):
             rows = [item for item in candidate if isinstance(item, Mapping)]
-            total = data.get("total")
-            return rows, int(total) if isinstance(total, int) else len(rows)
+            total = _coerce_int(data.get("total"))
+            return rows, total if total is not None else len(rows)
 
     return [], 0
+
+
+def _coerce_int(value: Any) -> int | None:
+    """Coerce a total that may arrive as a string."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value.strip())
+        except ValueError:
+            return None
+    return None
 
 
 class PlantService:
@@ -83,8 +101,23 @@ class PlantService:
         return plants
 
     async def get_plant(self, plant_id: str) -> Plant:
-        """Return the details of a single plant."""
-        data = await self._http.post("/plant/plantDetails", json={"id": plant_id})
+        """Return the details of a single plant.
+
+        The endpoint expects the key ``plantId``; sending ``id`` is answered
+        with ``Plant does not exist``.
+        """
+        data = await self._http.post("/plant/plantDetails", json={"plantId": plant_id})
         if not isinstance(data, Mapping):
             raise ValueError(f"unexpected plant details payload for {plant_id}")
         return Plant.from_payload(data)
+
+    async def get_plant_details(self, plant_id: str) -> PlantDetails:
+        """Return the details **and the energy counters** of a plant.
+
+        This is the only endpoint that exposes the daily grid import and
+        export counters, and the accumulated photovoltaic production.
+        """
+        data = await self._http.post("/plant/plantDetails", json={"plantId": plant_id})
+        if not isinstance(data, Mapping):
+            raise ValueError(f"unexpected plant details payload for {plant_id}")
+        return PlantDetails.from_payload(data)

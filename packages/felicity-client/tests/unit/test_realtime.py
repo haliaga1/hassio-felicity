@@ -35,28 +35,28 @@ class TestSubscriptionCommand:
 
 class TestParseSnapshotFrame:
     def test_parses_the_real_time_data_envelope(self) -> None:
-        snapshot = load_fixture("snapshot_inverter.json")["data"]
+        snapshot = load_fixture("snapshot_inverter.json")
         frame = json.dumps({"realTimeData": {"deviceSnapshot": snapshot}})
         parsed = parse_snapshot_frame(frame)
         assert parsed is not None
-        assert parsed.device_sn == "INV0001"
+        assert parsed.device_sn == snapshot["deviceSn"]
         assert parsed.product_type is ProductType.INVERTER
-        assert parsed.pv.power == pytest.approx(2943.8)
+        assert parsed.pv.power == pytest.approx(float(snapshot["pvTotalPower"]))
 
     def test_parses_a_bare_device_snapshot(self) -> None:
-        snapshot = load_fixture("snapshot_battery.json")["data"]
+        snapshot = load_fixture("snapshot_battery.json")
         parsed = parse_snapshot_frame(json.dumps({"deviceSnapshot": snapshot}))
         assert parsed is not None
-        assert parsed.device_sn == "BAT0001"
+        assert parsed.device_sn == snapshot["deviceSn"]
 
     def test_parses_a_top_level_snapshot(self) -> None:
-        snapshot = load_fixture("snapshot_controller.json")["data"]
+        snapshot = load_fixture("snapshot_controller.json")
         parsed = parse_snapshot_frame(json.dumps(snapshot))
         assert parsed is not None
-        assert parsed.device_sn == "CTL0001"
+        assert parsed.device_sn == snapshot["deviceSn"]
 
     def test_accepts_bytes(self) -> None:
-        snapshot = load_fixture("snapshot_inverter.json")["data"]
+        snapshot = load_fixture("snapshot_inverter.json")
         frame = json.dumps({"realTimeData": {"deviceSnapshot": snapshot}}).encode()
         assert parse_snapshot_frame(frame) is not None
 

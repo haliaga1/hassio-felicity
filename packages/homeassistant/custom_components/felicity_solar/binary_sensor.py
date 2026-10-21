@@ -14,7 +14,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityDescription
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from felicity_client.models.alerts import Alert
+from .vendor.felicity_client.models.alerts import Alert
 
 from .const import DOMAIN
 from .coordinator import FelicityCoordinator

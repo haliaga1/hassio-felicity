@@ -33,6 +33,7 @@ from .models import (
     DeviceType,
     EnergyFlow,
     Plant,
+    PlantDetails,
     ProductType,
     Snapshot,
 )
@@ -61,6 +62,7 @@ __all__ = [
     "FileTokenStore",
     "NullTokenStore",
     "Plant",
+    "PlantDetails",
     "ProductType",
     "Snapshot",
     "StoredToken",

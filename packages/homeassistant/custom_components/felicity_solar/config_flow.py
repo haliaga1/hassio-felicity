@@ -14,8 +14,8 @@ from homeassistant.helpers.selector import (
     SelectSelectorMode,
 )
 
-from felicity_client import FelicityAuthError, FelicityClient
-from felicity_client.exceptions import FelicityError
+from .vendor.felicity_client import FelicityAuthError, FelicityClient
+from .vendor.felicity_client.exceptions import FelicityError
 
 from .const import (
     API_URLS,

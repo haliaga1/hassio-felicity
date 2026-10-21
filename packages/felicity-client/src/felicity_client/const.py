@@ -22,10 +22,12 @@ __all__ = [
 
 #: International (INT) API node. The European node mirrors the same contract.
 INT_API_URL: Final = "https://shine-api.felicitysolar.com"
-INT_WS_URL: Final = "wss://shine-api.felicitysolar.com"
+#: The WebSocket base URL carries a ``/socket`` prefix; without it the
+#: handshake answers 404.
+INT_WS_URL: Final = "wss://shine-api.felicitysolar.com/socket"
 
 EU_API_URL: Final = "https://shine-api.felicitysolar.com"
-EU_WS_URL: Final = "wss://shine-api.felicitysolar.com"
+EU_WS_URL: Final = "wss://shine-api.felicitysolar.com/socket"
 
 DEFAULT_NODE: Final = "INT"
 DEFAULT_LANG: Final = "en_US"

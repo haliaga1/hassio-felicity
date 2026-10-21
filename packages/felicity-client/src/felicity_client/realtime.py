@@ -13,6 +13,10 @@ This module reproduces that protocol:
 * the connection is re-established with exponential backoff and jitter;
 * the caller consumes snapshots through a plain async generator, so the
   Home Assistant integration can treat WebSocket and polling identically.
+
+``aiohttp`` is used instead of ``websockets`` on purpose: Home Assistant
+already ships ``aiohttp``, so the integration needs **no** extra pip
+install at setup time.
 """
 
 from __future__ import annotations
@@ -24,6 +28,8 @@ import random
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
+
+import aiohttp
 
 from .const import (
     DEFAULT_WS_RECONNECT_MAX_DELAY,
@@ -121,6 +127,7 @@ class RealtimeService:
         reconnect_min_delay: float = DEFAULT_WS_RECONNECT_MIN_DELAY,
         reconnect_max_delay: float = DEFAULT_WS_RECONNECT_MAX_DELAY,
         max_reconnect_attempts: int = 10,
+        session: aiohttp.ClientSession | None = None,
     ) -> None:
         self._ws_base_url = ws_base_url.rstrip("/")
         self._token_provider = token_provider
@@ -128,6 +135,8 @@ class RealtimeService:
         self._reconnect_min_delay = reconnect_min_delay
         self._reconnect_max_delay = reconnect_max_delay
         self._max_reconnect_attempts = max_reconnect_attempts
+        self._session = session
+        self._owns_session = session is None
         self._connected = False
         self._connection_count = 0
 
@@ -165,7 +174,7 @@ class RealtimeService:
 
         while True:
             try:
-                async for snapshot in self._session(url, command, plant=plant):
+                async for snapshot in self._session_run(url, command, plant=plant):
                     attempt = 0
                     yield snapshot
             except asyncio.CancelledError:
@@ -190,34 +199,44 @@ class RealtimeService:
                 )
                 await asyncio.sleep(delay)
 
-    async def _session(
+    async def _session_run(
         self, url: str, command: SubscriptionCommand, *, plant: bool
     ) -> AsyncIterator[Snapshot]:
         """Run one socket session until it fails."""
-        from websockets.asyncio.client import connect
+        if self._session is None:
+            self._session = aiohttp.ClientSession()
+            self._owns_session = True
 
         headers = await self._handshake_headers()
         payload = command.to_payload(plant=plant)
 
-        async with connect(url, additional_headers=headers) as socket:
-            self._connected = True
-            self._connection_count += 1
-            _LOGGER.info("Connected to the FSolar WebSocket %s", url)
+        try:
+            async with self._session.ws_connect(url, headers=headers) as socket:
+                self._connected = True
+                self._connection_count += 1
+                _LOGGER.info("Connected to the FSolar WebSocket %s", url)
 
-            try:
-                await socket.send(json.dumps(payload))
-                keepalive = asyncio.create_task(self._keepalive_loop(socket, payload))
                 try:
-                    async for message in socket:
-                        snapshot = parse_snapshot_frame(message)
-                        if snapshot is not None:
-                            yield snapshot
+                    await socket.send_str(json.dumps(payload))
+                    keepalive = asyncio.create_task(self._keepalive_loop(socket, payload))
+                    try:
+                        async for message in socket:
+                            if message.type is not aiohttp.WSMsgType.TEXT:
+                                continue
+                            snapshot = parse_snapshot_frame(message.data)
+                            if snapshot is not None:
+                                yield snapshot
+                    finally:
+                        keepalive.cancel()
+                        await asyncio.gather(keepalive, return_exceptions=True)
                 finally:
-                    keepalive.cancel()
-                    await asyncio.gather(keepalive, return_exceptions=True)
-            finally:
-                self._connected = False
-                _LOGGER.info("Disconnected from the FSolar WebSocket %s", url)
+                    self._connected = False
+                    _LOGGER.info("Disconnected from the FSolar WebSocket %s", url)
+        finally:
+            if self._owns_session and self._session is not None:
+                await self._session.close()
+                self._session = None
+                self._owns_session = False
 
     async def _handshake_headers(self) -> dict[str, str]:
         """Build the headers sent with the WebSocket handshake.
@@ -243,7 +262,7 @@ class RealtimeService:
         while True:
             await asyncio.sleep(self._keepalive)
             try:
-                await socket.send(json.dumps(payload))
+                await socket.send_str(json.dumps(payload))
             except Exception as exc:  # noqa: BLE001 - the session will handle the failure
                 _LOGGER.debug("Could not send the WebSocket keepalive: %s", exc)
                 return

@@ -24,7 +24,7 @@ TIMEOUT = 12.0
 
 async def _try(client: FelicityClient, device_sn: str, *, with_token: bool) -> tuple[bool, str]:
     """Try one handshake variant and report whether a snapshot arrived."""
-    from websockets.asyncio.client import connect
+    import aiohttp
 
     url = f"{client.realtime._ws_base_url}/energy-flow/{device_sn}"
     headers: dict[str, str] = {}
@@ -36,13 +36,18 @@ async def _try(client: FelicityClient, device_sn: str, *, with_token: bool) -> t
     payload = command.to_payload()
 
     try:
-        async with connect(url, additional_headers=headers) as socket:
-            await socket.send(json.dumps(payload))
+        async with (
+            aiohttp.ClientSession() as session,
+            session.ws_connect(url, headers=headers) as socket,
+        ):
+            await socket.send_str(json.dumps(payload))
             deadline = asyncio.get_running_loop().time() + TIMEOUT
             while asyncio.get_running_loop().time() < deadline:
                 remaining = deadline - asyncio.get_running_loop().time()
-                message = await asyncio.wait_for(socket.recv(), timeout=remaining)
-                snapshot = parse_snapshot_frame(message)
+                message = await asyncio.wait_for(socket.receive(), timeout=remaining)
+                if message.type is not aiohttp.WSMsgType.TEXT:
+                    continue
+                snapshot = parse_snapshot_frame(message.data)
                 if snapshot is not None:
                     return True, f"received a snapshot for {snapshot.device_sn}"
     except TimeoutError:

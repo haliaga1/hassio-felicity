@@ -36,8 +36,8 @@ from homeassistant.const import (
     UnitOfTemperature,
 )
 
-from felicity_client.models.common import ProductType
-from felicity_client.models.snapshot import Snapshot
+from .vendor.felicity_client.models.common import ProductType
+from .vendor.felicity_client.models.snapshot import Snapshot
 
 __all__ = [
     "SENSOR_DESCRIPTIONS",

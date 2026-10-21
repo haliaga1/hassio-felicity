@@ -28,15 +28,22 @@ __all__ = [
 
 @dataclass(frozen=True, slots=True)
 class PVReadings:
-    """Photovoltaic input measurements."""
+    """Photovoltaic input measurements.
+
+    A device can have several PV strings. ``pvPower`` is then only the
+    *first* string, so the total (``pvTotalPower``) is preferred: on a live
+    two-string installation, ``pvPower`` reported 1938 W while
+    ``pvTotalPower`` reported 3990 W.
+    """
 
     power: float | None = None
     total_power: float | None = None
     voltage: float | None = None
     current: float | None = None
-    channel_count: int | None = None
+    string_count: int | None = None
     energy_today_kwh: float | None = None
     energy_total_kwh: float | None = None
+    energy_month_kwh: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,14 +61,21 @@ class ACReadings:
 
 @dataclass(frozen=True, slots=True)
 class BatteryReadings:
-    """Battery / EMS measurements."""
+    """Battery / EMS measurements.
+
+    The sign convention, confirmed on a live installation: a **positive**
+    power and current mean the battery is **charging**.
+    """
 
     soc: float | None = None
     soh: float | None = None
     voltage: float | None = None
     current: float | None = None
     power: float | None = None
-    capacity_kwh: float | None = None
+    #: Nominal capacity, in the unit the vendor reports (Ah on the FLA
+    #: family). It is **not** kWh, so it is not exposed as an energy sensor.
+    capacity_raw: float | None = None
+    capacity_unit: str | None = None
     remaining_energy_kwh: float | None = None
     total_ems_capacity_kwh: float | None = None
     charging_state: int | None = None
@@ -74,10 +88,9 @@ class BatteryReadings:
     def charging_state_name(self) -> str:
         """Human readable charging state.
 
-        The numeric mapping of ``bmsChargingState`` is not documented by the
-        vendor. ``0``/``1`` are confirmed by the reference implementation
-        (idle / charging); everything else is reported as ``unknown`` rather
-        than guessed. See ``docs/spikes/energy-flow-shape.md``.
+        Confirmed on a live FLA48100-EU: ``bmsChargingState == 1`` while the
+        battery was charging (``bmsPower`` positive). ``0`` is idle. Any
+        other value is reported as ``unknown`` rather than guessed.
         """
         if self.charging_state is None:
             return "unknown"
@@ -114,7 +127,6 @@ class Snapshot:
     timestamp: datetime | None = None
     model: str | None = None
     plant_name: str | None = None
-    plant_id: str | None = None
     status: str | None = None
     work_mode: str | None = None
     firmware_version: str | None = None
@@ -144,7 +156,6 @@ class Snapshot:
             timestamp=_parse_timestamp(payload.get("dataTime"), payload.get("dataTimeStr")),
             model=to_str(payload.get("deviceModel")),
             plant_name=to_str(payload.get("plantName")),
-            plant_id=to_str(payload.get("plantId")),
             status=to_str(payload.get("status")),
             work_mode=to_str(payload.get("workModeStr")),
             firmware_version=to_str(payload.get("firmwareVersion")),
@@ -155,13 +166,18 @@ class Snapshot:
             warning_count=to_int(payload.get("warningCount")),
             time_zone=to_str(payload.get("timeZone")),
             pv=PVReadings(
-                power=to_float(payload.get("pvPower")),
+                # The total covers every PV string; pvPower is only the first.
+                power=to_float(payload.get("pvTotalPower"), to_float(payload.get("pvPower"))),
                 total_power=to_float(payload.get("pvTotalPower")),
                 voltage=to_float(payload.get("pvVolt")),
                 current=to_float(payload.get("pvInCurr")),
-                channel_count=to_int(payload.get("pvChannelNum")),
+                string_count=to_int(payload.get("pvChannelNum")),
                 energy_today_kwh=to_float(payload.get("ePvToday")),
-                energy_total_kwh=to_float(payload.get("ePvTotal")),
+                energy_total_kwh=to_float(
+                    payload.get("ePvTotal"),
+                    to_float(payload.get("ePvYear"), to_float(payload.get("totalEnergy"))),
+                ),
+                energy_month_kwh=to_float(payload.get("ePvMonth")),
             ),
             ac_in=ACReadings(
                 voltage=to_float(payload.get("acRInVolt")),
@@ -170,7 +186,10 @@ class Snapshot:
                 power=to_float(payload.get("acRInPower")),
                 load_percent=to_float(payload.get("loadPercent")),
                 energy_today_kwh=to_float(payload.get("eLoadToday")),
-                energy_total_kwh=to_float(payload.get("eLoadTotal")),
+                energy_total_kwh=to_float(
+                    payload.get("eLoadTotal"),
+                    to_float(payload.get("eLoadYear"), to_float(payload.get("tLoadYear"))),
+                ),
             ),
             ac_out=ACReadings(
                 voltage=to_float(payload.get("acROutVolt")),
@@ -180,18 +199,25 @@ class Snapshot:
                 load_percent=to_float(payload.get("loadPercent")),
             ),
             battery=BatteryReadings(
-                soc=to_float(payload.get("emsSoc"), to_float(payload.get("battSoc"))),
+                # A battery reports its own ``battSoc``; the ``emsSoc`` of
+                # the same payload is the aggregate of the whole installation
+                # and can differ by a point. The device's own value wins.
+                soc=to_float(payload.get("battSoc"), to_float(payload.get("emsSoc"))),
                 soh=to_float(payload.get("battSoh"), to_float(payload.get("emsSoh"))),
                 voltage=to_float(payload.get("battVolt"), to_float(payload.get("emsVoltage"))),
                 current=to_float(payload.get("battCurr"), to_float(payload.get("emsCurrent"))),
                 power=to_float(payload.get("bmsPower"), to_float(payload.get("emsPower"))),
-                capacity_kwh=to_float(payload.get("battCapacity")),
-                remaining_energy_kwh=to_float(payload.get("remainingBatteryEnergy1")),
+                capacity_raw=to_float(payload.get("battCapacity")),
+                capacity_unit="Ah",
+                remaining_energy_kwh=to_float(
+                    payload.get("remainingBatteryEnergy"),
+                    to_float(payload.get("remainingBatteryEnergy1")),
+                ),
                 total_ems_capacity_kwh=to_float(payload.get("totalEmsCapacity")),
                 charging_state=to_int(payload.get("bmsChargingState")),
                 bms_state=to_str(payload.get("bmsState")),
-                cell_voltage_max=to_float(payload.get("maxVoltage2bms")),
-                cell_voltage_min=to_float(payload.get("minVoltage2bms")),
+                cell_voltage_max=_cell_voltage(payload.get("maxVoltage2bms")),
+                cell_voltage_min=_cell_voltage(payload.get("minVoltage2bms")),
                 cell_voltages=cell_voltages,
             ),
             thermal=ThermalReadings(
@@ -205,7 +231,10 @@ class Snapshot:
                 total_kwh=to_float(payload.get("totalEnergy")),
                 total_unit=to_str(payload.get("totalEnergyUnit")),
                 energy_today_kwh=to_float(payload.get("eLoadToday")),
-                energy_total_kwh=to_float(payload.get("eLoadTotal")),
+                energy_total_kwh=to_float(
+                    payload.get("eLoadTotal"),
+                    to_float(payload.get("eLoadYear"), to_float(payload.get("tLoadYear"))),
+                ),
             ),
             raw=dict(payload),
         )
@@ -217,6 +246,22 @@ def _float_tuple(value: Any) -> tuple[float, ...]:
         return ()
     coerced = [to_float(item) for item in value]
     return tuple(item for item in coerced if item is not None)
+
+
+def _cell_voltage(value: Any) -> float | None:
+    """Normalise a cell voltage to volts.
+
+    The vendor reports them in **millivolts** on some families (``3442``)
+    and in **volts** on others (``3.331``). A value above 100 V is
+    physically impossible for a lithium cell, so it is unambiguously
+    millivolts.
+    """
+    number = to_float(value)
+    if number is None:
+        return None
+    if abs(number) > 100:
+        return number / 1000
+    return number
 
 
 def _parse_timestamp(raw_epoch: Any, raw_str: Any) -> datetime | None:

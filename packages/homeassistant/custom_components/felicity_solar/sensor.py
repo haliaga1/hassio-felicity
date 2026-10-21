@@ -21,14 +21,18 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util import dt as dt_util
 
-from felicity_client.models.common import Device, ProductType
-from felicity_client.models.energy import EnergyFlow
-from felicity_client.models.snapshot import Snapshot
+from .vendor.felicity_client.models.common import Device, ProductType
+from .vendor.felicity_client.models.energy import EnergyFlow
+from .vendor.felicity_client.models.snapshot import Snapshot
 
 from .const import DOMAIN
 from .coordinator import FelicityCoordinator
 from .descriptions import SENSOR_DESCRIPTIONS, FelicitySensorEntityDescription
 from .entity import FelicityEntity, slugify
+from .plant_energy import (
+    PLANT_ENERGY_DESCRIPTIONS,
+    FelicityPlantEnergySensor,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -48,12 +52,16 @@ async def async_setup_entry(
                 continue
             entities.append(FelicitySolarSensor(coordinator, device, description))
 
+    plant_name = str(entry.data.get("plant_name") or entry.title)
     if coordinator.plant_flow_enabled:
-        plant_name = str(entry.data.get("plant_name") or entry.title)
         entities.extend(
             FelicityPlantSensor(coordinator, plant_name, description)
             for description in PLANT_SENSOR_DESCRIPTIONS
         )
+    entities.extend(
+        FelicityPlantEnergySensor(coordinator, plant_name, description)
+        for description in PLANT_ENERGY_DESCRIPTIONS
+    )
 
     async_add_entities(entities)
     _LOGGER.info("Added %s Felicity Solar sensor(s)", len(entities))

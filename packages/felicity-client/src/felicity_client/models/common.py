@@ -18,7 +18,18 @@ __all__ = [
 
 
 class ProductType(StrEnum):
-    """The ``productTypeEnum`` discriminant returned by the snapshot endpoint."""
+    """The product family of a device.
+
+    Two different fields identify it, and they are not always present:
+
+    * ``productTypeEnum`` — the canonical name, but only the **snapshot**
+      endpoint returns it;
+    * ``deviceType`` — a short code present in the device list, and the only
+      hint available there.
+
+    Verified codes: ``BP`` (battery pack), ``OG`` (off-grid inverter),
+    ``PCS``/``CO`` (controller).
+    """
 
     INVERTER = "HIGH_FREQUENCY_INVERTER"
     BATTERY = "LITHIUM_BATTERY_PACK"
@@ -35,6 +46,24 @@ class ProductType(StrEnum):
             return cls(raw)
         except ValueError:
             return cls.UNKNOWN
+
+    @classmethod
+    def from_device_type(cls, value: object) -> ProductType:
+        """Map the short ``deviceType`` code to a product family.
+
+        The device list endpoint does not return ``productTypeEnum``, so this
+        is the only way to tell an inverter from a battery before the first
+        snapshot is read.
+        """
+        raw = to_str(value)
+        if raw is None:
+            return cls.UNKNOWN
+        return {
+            "BP": cls.BATTERY,
+            "OG": cls.INVERTER,
+            "PCS": cls.CONTROLLER,
+            "CO": cls.CONTROLLER,
+        }.get(raw.upper(), cls.UNKNOWN)
 
 
 #: Backwards-friendly alias.
@@ -95,9 +124,14 @@ class Device:
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> Device:
         """Build a device from a ``/device/list_device*`` record."""
+        product_type = ProductType.parse(payload.get("productTypeEnum"))
+        if product_type is ProductType.UNKNOWN:
+            # The device list does not carry productTypeEnum; fall back to
+            # the short deviceType code.
+            product_type = ProductType.from_device_type(payload.get("deviceType"))
         return cls(
             serial_number=to_str(payload.get("deviceSn")) or "",
-            product_type=ProductType.parse(payload.get("productTypeEnum")),
+            product_type=product_type,
             model=to_str(payload.get("deviceModel")),
             device_type=to_str(payload.get("deviceType")),
             plant_id=to_str(payload.get("plantId")),
@@ -114,14 +148,16 @@ class Device:
     def is_online(self) -> bool | None:
         """Whether the backend reports the device as online.
 
-        Returns ``None`` when the status is unknown or in an unrecognised
-        format, so that callers do not report a false negative.
+        The live API uses ``NM`` for a device in its normal state, which is
+        the only status a healthy device reports. ``None`` is returned when
+        the status is unknown, so that callers do not report a false
+        negative.
         """
         if self.status is None:
             return None
         lowered = self.status.lower()
-        if lowered in {"online", "1", "true", "connected"}:
+        if lowered in {"online", "1", "true", "connected", "nm"}:
             return True
-        if lowered in {"offline", "0", "false", "disconnected"}:
+        if lowered in {"offline", "0", "false", "disconnected", "off"}:
             return False
         return None
