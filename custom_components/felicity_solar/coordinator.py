@@ -24,6 +24,7 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import (
@@ -39,6 +40,7 @@ from .const import (
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
 )
+from .counters import LifetimeCounters
 from .vendor.felicity_client import (
     Alert,
     Device,
@@ -62,6 +64,7 @@ class FelicityData:
     snapshots: dict[str, Snapshot] = field(default_factory=dict)
     flows: dict[str, EnergyFlow] = field(default_factory=dict)
     plant_details: PlantDetails | None = None
+    counters: LifetimeCounters | None = None
     alerts: list[Alert] = field(default_factory=list)
     source: str = "rest"
     last_update: Any = None
@@ -82,12 +85,16 @@ class FelicityCoordinator(DataUpdateCoordinator[FelicityData]):
         hass: HomeAssistant,
         entry: FelicityConfigEntry,
         client: FelicityClient,
+        store: Store[dict[str, Any]] | None = None,
     ) -> None:
         """Initialise the coordinator."""
         self.entry = entry
         self.client = client
         self._ws_tasks: dict[str, asyncio.Task[None]] = {}
         self._ws_connected = False
+        self._store = store
+        self._counters: LifetimeCounters | None = None
+        self._counters_dirty = False
 
         interval = entry.options.get(
             CONF_SCAN_INTERVAL, entry.data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
@@ -191,15 +198,19 @@ class FelicityCoordinator(DataUpdateCoordinator[FelicityData]):
             except FelicityError as exc:
                 _LOGGER.debug("Could not read the plant details: %s", exc)
 
+        counters = self._update_counters(plant_details)
+
         data = FelicityData(
             devices={device.serial_number: device for device in devices},
             snapshots=snapshots,
             flows=flows,
             plant_details=plant_details,
+            counters=counters,
             alerts=alerts,
             source="websocket" if self._ws_connected else "rest",
             last_update=self.last_update_success,
         )
+        await self.async_persist_counters()
         _LOGGER.debug(
             "Fetched %s device(s), %s snapshot(s), %s alert(s) via %s",
             len(data.devices),
@@ -209,12 +220,37 @@ class FelicityCoordinator(DataUpdateCoordinator[FelicityData]):
         )
         return data
 
+    def restore_counters(self, counters: LifetimeCounters) -> None:
+        """Adopt the counters that were persisted by a previous run."""
+        self._counters = counters
+
     def _wanted_serials(self, devices: list[Device]) -> list[str]:
         """Return the serial numbers that should be polled."""
         if self.scan_devices:
             return [device.serial_number for device in devices]
         selected = set(self.selected_serials)
         return [device.serial_number for device in devices if device.serial_number in selected]
+
+    def _update_counters(self, details: PlantDetails | None) -> LifetimeCounters | None:
+        """Accumulate the lifetime counters and persist them.
+
+        The counters have to survive a restart, otherwise every restart
+        would reset the Energy Dashboard totals.
+        """
+        if details is None:
+            return self._counters
+        if self._counters is None:
+            self._counters = LifetimeCounters()
+        self._counters.update(details)
+        self._counters_dirty = True
+        return self._counters
+
+    async def async_persist_counters(self) -> None:
+        """Write the accumulated counters to the store, if they changed."""
+        if not self._counters_dirty or self._counters is None:
+            return
+        await self._store.async_save(self._counters.to_dict())
+        self._counters_dirty = False
 
     async def async_start_websocket(self) -> None:
         """Start the WebSocket listener, if enabled."""

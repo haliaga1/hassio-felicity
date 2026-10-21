@@ -79,6 +79,11 @@ class FelicitySolarConfigFlow(ConfigFlow, domain=DOMAIN):
         """Ask for the credentials and validate them."""
         errors: dict[str, str] = {}
 
+        # The flow can be started from the options flow of another entry,
+        # with a marker instead of credentials.
+        if user_input is not None and CONF_EMAIL not in user_input:
+            user_input = None
+
         if user_input is not None:
             self._email = user_input[CONF_EMAIL]
             self._password = user_input[CONF_PASSWORD]
@@ -101,12 +106,10 @@ class FelicitySolarConfigFlow(ConfigFlow, domain=DOMAIN):
                     errors["base"] = "no_plants"
                 else:
                     self._plants = {plant.id: plant.name for plant in plants}
-                    await self.async_set_unique_id(self._email.lower())
-                    self._abort_if_unique_id_configured()
                     if len(self._plants) == 1:
                         # A single installation needs no extra step.
                         plant_id = next(iter(self._plants))
-                        return self._async_create_entry(plant_id)
+                        return await self._async_create_entry(plant_id)
                     return await self.async_step_plant()
 
         return self.async_show_form(
@@ -121,7 +124,7 @@ class FelicitySolarConfigFlow(ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             plant_id = user_input[CONF_PLANT_ID]
-            return self._async_create_entry(plant_id)
+            return await self._async_create_entry(plant_id)
 
         options = [{"value": plant_id, "label": name} for plant_id, name in self._plants.items()]
         schema = vol.Schema(
@@ -141,9 +144,88 @@ class FelicitySolarConfigFlow(ConfigFlow, domain=DOMAIN):
             description_placeholders={"plants": ", ".join(self._plants.values())},
         )
 
-    def _async_create_entry(self, plant_id: str) -> ConfigFlowResult:
-        """Create the config entry for the selected plant."""
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Move an existing entry to another plant of the same account.
+
+        The account is already known here, so only the plant is asked for.
+        """
+        errors: dict[str, str] = {}
+        entry = self._get_reconfigure_entry()
+
+        if user_input is not None:
+            plant_id = user_input[CONF_PLANT_ID]
+            plant_name = self._plants.get(plant_id, plant_id)
+            return self.async_update_reload_and_abort(
+                entry,
+                data={**entry.data, CONF_PLANT_ID: plant_id, CONF_PLANT_NAME: plant_name},
+            )
+
+        options = [{"value": plant_id, "label": name} for plant_id, name in self._plants.items()]
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_PLANT_ID): SelectSelector(
+                    SelectSelectorConfig(
+                        options=options,
+                        mode=SelectSelectorMode.DROPDOWN,
+                    )
+                ),
+            }
+        )
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders={"plants": ", ".join(self._plants.values())},
+        )
+
+    async def async_step_reconfigure_account(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Ask for the credentials again, to list the plants of the account."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            self._email = user_input[CONF_EMAIL]
+            self._password = user_input[CONF_PASSWORD]
+            self._node = user_input.get(CONF_API_NODE, "INT")
+            try:
+                self._plants = await self._async_load_plants(self._node)
+            except FelicityAuthError:
+                errors["base"] = "invalid_auth"
+            except FelicityError as exc:
+                _LOGGER.error("Could not reach the FSolar API: %s", exc)
+                errors["base"] = "cannot_connect"
+            else:
+                if not self._plants:
+                    errors["base"] = "no_plants"
+                else:
+                    return await self.async_step_reconfigure()
+
+        return self.async_show_form(
+            step_id="reconfigure_account",
+            data_schema=STEP_USER_SCHEMA,
+            errors=errors,
+        )
+
+    async def _async_load_plants(self, node: str) -> dict[str, str]:
+        """Return the plants of the account, keyed by id."""
+        client = _build_client(self._email, self._password, node)
+        async with client:
+            plants = await client.list_plants()
+        return {plant.id: plant.name for plant in plants}
+
+    async def _async_create_entry(self, plant_id: str) -> ConfigFlowResult:
+        """Create the config entry for the selected plant.
+
+        The unique id pairs the **account** with the **plant**, so the same
+        account can expose several plants and the same plant can be reached
+        from several accounts, without either being blocked.
+        """
         plant_name = self._plants.get(plant_id, plant_id)
+        await self.async_set_unique_id(f"{self._email.lower()}:{plant_id}")
+        self._abort_if_unique_id_configured()
         return self.async_create_entry(
             title=plant_name or "Felicity Solar",
             data={

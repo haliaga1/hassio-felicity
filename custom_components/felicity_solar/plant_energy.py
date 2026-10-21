@@ -9,6 +9,10 @@ declared with ``state_class=TOTAL`` and a ``last_reset`` of midnight — the
 way Home Assistant expects a periodic counter. The accumulated production
 only grows and is declared ``TOTAL_INCREASING``, which is what the Energy
 Dashboard needs.
+
+The **lifetime** counters of the grid and the battery are accumulated from
+the daily ones, because the API does not publish them; see
+:mod:`custom_components.felicity_solar.counters`.
 """
 
 from __future__ import annotations
@@ -26,16 +30,19 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.const import UnitOfEnergy, UnitOfPower
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN
 from .coordinator import FelicityCoordinator
+from .counters import LifetimeCounters
 from .entity import FelicityEntity
 from .vendor.felicity_client.models.plant_details import PlantDetails
 
 _LOGGER = logging.getLogger(__name__)
 
 DetailsFn = Callable[[PlantDetails], float | None]
+CounterFn = Callable[[LifetimeCounters], float | None]
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -43,6 +50,9 @@ class FelicityPlantEnergyEntityDescription(SensorEntityDescription):
     """A plant energy sensor description."""
 
     details_fn: DetailsFn
+    #: Set for the sensors that read the accumulated counters instead of the
+    #: plant details.
+    counter_fn: CounterFn | None = None
     #: Whether the counter resets every day.
     resets_daily: bool = False
 
@@ -185,7 +195,64 @@ PLANT_ENERGY_DESCRIPTIONS: tuple[FelicityPlantEnergyEntityDescription, ...] = (
         suggested_display_precision=1,
         details_fn=_rated_power,
     ),
+    # --- Lifetime counters, accumulated from the daily ones -------------
+    FelicityPlantEnergyEntityDescription(
+        key="plant_grid_import_total",
+        translation_key="plant_grid_import_total",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
+        details_fn=lambda _details: None,
+        counter_fn=lambda counters: counters.grid_import_kwh,
+    ),
+    FelicityPlantEnergyEntityDescription(
+        key="plant_grid_export_total",
+        translation_key="plant_grid_export_total",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
+        details_fn=lambda _details: None,
+        counter_fn=lambda counters: counters.grid_export_kwh,
+    ),
+    FelicityPlantEnergyEntityDescription(
+        key="plant_battery_charging_total",
+        translation_key="plant_battery_charging_total",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
+        details_fn=lambda _details: None,
+        counter_fn=lambda counters: counters.battery_charging_kwh,
+    ),
+    FelicityPlantEnergyEntityDescription(
+        key="plant_battery_discharging_total",
+        translation_key="plant_battery_discharging_total",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
+        details_fn=lambda _details: None,
+        counter_fn=lambda counters: counters.battery_discharging_kwh,
+    ),
 )
+
+
+async def async_setup_entry(
+    hass: Any,
+    entry: Any,
+    async_add_entities: AddConfigEntryEntitiesCallback,
+) -> None:
+    """Set up the plant energy sensors."""
+    coordinator: FelicityCoordinator = hass.data[DOMAIN][entry.entry_id]
+    plant_name = str(entry.data.get("plant_name") or entry.title)
+    entities: list[FelicityEntity] = [
+        FelicityPlantEnergySensor(coordinator, plant_name, description)
+        for description in PLANT_ENERGY_DESCRIPTIONS
+    ]
+    async_add_entities(entities)
+    _LOGGER.info("Added %s plant energy sensor(s)", len(entities))
 
 
 class FelicityPlantEnergySensor(FelicityEntity, SensorEntity):
@@ -235,6 +302,12 @@ class FelicityPlantEnergySensor(FelicityEntity, SensorEntity):
     @property
     def native_value(self) -> Any:
         """The value of the sensor."""
+        if self.entity_description.counter_fn is not None:
+            counters = self.data.counters
+            if counters is None:
+                return None
+            return self.entity_description.counter_fn(counters)
+
         details = self.data.plant_details
         if details is None:
             return None

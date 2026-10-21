@@ -1,0 +1,95 @@
+"""Tests for the lifetime counters accumulated from the daily ones.
+
+The FSolar API publishes daily counters for the grid and the battery, but
+the Home Assistant Energy Dashboard needs lifetime ones. The counters are
+accumulated from the day-to-day delta of the daily values.
+"""
+
+from __future__ import annotations
+
+from datetime import date
+
+import pytest
+from custom_components.felicity_solar.counters import LifetimeCounters
+from custom_components.felicity_solar.vendor.felicity_client.models.plant_details import (
+    PlantDetails,
+)
+
+
+def _details(**kwargs: float) -> PlantDetails:
+    """Build a plant details payload with the given daily counters."""
+    payload = {
+        "id": "plant-1",
+        "todayGridInput": "0",
+        "todayFeedOutput": "0",
+        "todayBatteryCharging": "0",
+        "todayBatteryDischarge": "0",
+    }
+    for key, value in kwargs.items():
+        payload[key] = str(value)
+    return PlantDetails.from_payload(payload)
+
+
+class TestLifetimeCounters:
+    def test_the_first_read_counts_the_whole_daily_value(self) -> None:
+        counters = LifetimeCounters()
+        counters.update(_details(todayGridInput=5.0))
+        assert counters.grid_import_kwh == pytest.approx(5.0)
+
+    def test_the_delta_of_the_same_day_is_added(self) -> None:
+        counters = LifetimeCounters()
+        counters.update(_details(todayGridInput=5.0))
+        counters.update(_details(todayGridInput=8.0))
+        assert counters.grid_import_kwh == pytest.approx(8.0)
+
+    def test_a_day_rollover_does_not_lose_the_energy(self) -> None:
+        """The daily counter resets at midnight; the total must not."""
+        counters = LifetimeCounters()
+        counters.update(_details(todayGridInput=5.0))
+        # Pretend the last read was yesterday.
+        counters._day = "2000-01-01"
+        counters.update(_details(todayGridInput=2.0))
+        assert counters.grid_import_kwh == pytest.approx(7.0)
+
+    def test_a_counter_that_goes_backwards_does_not_reduce_the_total(self) -> None:
+        counters = LifetimeCounters()
+        counters.update(_details(todayGridInput=5.0))
+        counters.update(_details(todayGridInput=3.0))
+        assert counters.grid_import_kwh == pytest.approx(5.0)
+
+    def test_every_counter_is_tracked(self) -> None:
+        counters = LifetimeCounters()
+        counters.update(
+            _details(
+                todayGridInput=1.0,
+                todayFeedOutput=2.0,
+                todayBatteryCharging=3.0,
+                todayBatteryDischarge=4.0,
+            )
+        )
+        assert counters.grid_import_kwh == pytest.approx(1.0)
+        assert counters.grid_export_kwh == pytest.approx(2.0)
+        assert counters.battery_charging_kwh == pytest.approx(3.0)
+        assert counters.battery_discharging_kwh == pytest.approx(4.0)
+
+    def test_a_missing_daily_counter_is_skipped(self) -> None:
+        counters = LifetimeCounters()
+        counters.update(_details())
+        counters.update(_details(todayGridInput=4.0))
+        assert counters.grid_import_kwh == pytest.approx(4.0)
+
+    def test_the_counters_survive_a_round_trip(self) -> None:
+        counters = LifetimeCounters()
+        counters.update(_details(todayGridInput=5.0, todayFeedOutput=1.5))
+        restored = LifetimeCounters.from_dict(counters.to_dict())
+        assert restored.grid_import_kwh == pytest.approx(5.0)
+        assert restored.grid_export_kwh == pytest.approx(1.5)
+        # The restored counter knows the daily value, so it does not count
+        # it a second time.
+        restored.update(_details(todayGridInput=6.0))
+        assert restored.grid_import_kwh == pytest.approx(6.0)
+
+    def test_the_day_is_today(self) -> None:
+        counters = LifetimeCounters()
+        counters.update(_details(todayGridInput=1.0))
+        assert counters._day == date.today().isoformat()

@@ -23,6 +23,7 @@ from .const import (
     WS_URLS,
 )
 from .coordinator import FelicityCoordinator
+from .counters import LifetimeCounters
 from .vendor.felicity_client import FelicityClient, StoredToken
 
 _LOGGER = logging.getLogger(__name__)
@@ -30,6 +31,10 @@ _LOGGER = logging.getLogger(__name__)
 #: Where the bearer token is cached, encrypted by Home Assistant.
 TOKEN_STORAGE_KEY = f"{DOMAIN}.token"
 TOKEN_STORAGE_VERSION = 1
+
+#: Where the accumulated energy counters are cached.
+COUNTERS_STORAGE_KEY = f"{DOMAIN}.counters"
+COUNTERS_STORAGE_VERSION = 1
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -50,7 +55,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             client.auth.restore(token)
             _LOGGER.debug("Restored a cached FSolar token for %s", entry.data[CONF_EMAIL])
 
-    coordinator = FelicityCoordinator(hass, entry, client)
+    counters_store: Store[dict[str, Any]] = Store(
+        hass, COUNTERS_STORAGE_VERSION, COUNTERS_STORAGE_KEY
+    )
+    counters = LifetimeCounters()
+    stored_counters = await counters_store.async_load()
+    if stored_counters:
+        counters = LifetimeCounters.from_dict(stored_counters)
+
+    coordinator = FelicityCoordinator(hass, entry, client, store=counters_store)
+    coordinator.restore_counters(counters)
     await coordinator.async_config_entry_first_refresh()
     await _async_cache_token(hass, store, entry, client)
 

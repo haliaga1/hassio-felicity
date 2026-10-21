@@ -16,7 +16,7 @@ from homeassistant import config_entries, data_entry_flow
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from .conftest import API_URL, envelope, load_fixture, plant_id
+from .conftest import API_URL, envelope, load_fixture, plant_id, register_api
 
 
 @pytest.mark.usefixtures("enable_custom_integrations")
@@ -122,12 +122,18 @@ async def test_the_plant_step_selects_an_installation(hass: HomeAssistant) -> No
 
 @pytest.mark.usefixtures("enable_custom_integrations")
 @respx.mock
-async def test_an_already_configured_account_is_aborted(hass: HomeAssistant) -> None:
-    """The same account cannot be added twice."""
+async def test_an_already_configured_account_and_plant_is_aborted(
+    hass: HomeAssistant,
+) -> None:
+    """The same account cannot be added twice for the same plant."""
     MockConfigEntry(
         domain=DOMAIN,
-        data={CONF_EMAIL: "fixture@example.com"},
-        unique_id="fixture@example.com",
+        data={
+            CONF_EMAIL: "fixture@example.com",
+            CONF_PASSWORD: "password",
+            CONF_PLANT_ID: plant_id(),
+        },
+        unique_id=f"fixture@example.com:{plant_id()}",
     ).add_to_hass(hass)
 
     respx.post(f"{API_URL}/userlogin").mock(
@@ -144,5 +150,74 @@ async def test_an_already_configured_account_is_aborted(hass: HomeAssistant) -> 
         result["flow_id"],
         {CONF_EMAIL: "fixture@example.com", CONF_PASSWORD: "password", CONF_API_NODE: "INT"},
     )
+    assert result["type"] is data_entry_flow.FlowResultType.FORM
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_PLANT_ID: plant_id()}
+    )
     assert result["type"] is data_entry_flow.FlowResultType.ABORT
     assert result["reason"] == "already_configured"
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+@respx.mock
+async def test_a_second_plant_of_the_same_account_is_allowed(
+    hass: HomeAssistant,
+) -> None:
+    """One account can expose several plants; each gets its own entry."""
+    MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_EMAIL: "fixture@example.com",
+            CONF_PASSWORD: "password",
+            CONF_PLANT_ID: plant_id(),
+        },
+        unique_id=f"fixture@example.com:{plant_id()}",
+    ).add_to_hass(hass)
+
+    register_api()
+
+    other_plant = load_fixture("list_plant.json")["dataList"][1]["id"]
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {CONF_EMAIL: "fixture@example.com", CONF_PASSWORD: "password", CONF_API_NODE: "INT"},
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_PLANT_ID: other_plant}
+    )
+    assert result["type"] is data_entry_flow.FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_PLANT_ID] == other_plant
+    # The unique id pairs the account with the plant.
+    assert result["result"].unique_id == f"fixture@example.com:{other_plant}"
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+@respx.mock
+async def test_another_account_is_allowed(hass: HomeAssistant) -> None:
+    """A different account of the same platform gets its own entry."""
+    MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_EMAIL: "otro@example.com",
+            CONF_PASSWORD: "password",
+            CONF_PLANT_ID: plant_id(),
+        },
+        unique_id=f"otro@example.com:{plant_id()}",
+    ).add_to_hass(hass)
+
+    register_api()
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {CONF_EMAIL: "nuevo@example.com", CONF_PASSWORD: "password", CONF_API_NODE: "INT"},
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_PLANT_ID: plant_id()}
+    )
+    assert result["type"] is data_entry_flow.FlowResultType.CREATE_ENTRY
+    assert result["result"].unique_id == f"nuevo@example.com:{plant_id()}"
