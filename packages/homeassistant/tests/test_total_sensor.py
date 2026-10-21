@@ -8,12 +8,6 @@ from __future__ import annotations
 
 import pytest
 import respx
-from homeassistant.components.sensor import SensorStateClass
-from homeassistant.const import UnitOfEnergy
-from homeassistant.core import HomeAssistant
-from pytest_homeassistant_custom_component.common import MockConfigEntry
-from homeassistant.config_entries import ConfigEntryState
-
 from custom_components.felicity_solar.const import (
     CONF_EMAIL,
     CONF_PASSWORD,
@@ -21,8 +15,13 @@ from custom_components.felicity_solar.const import (
     CONF_PLANT_NAME,
     DOMAIN,
 )
+from homeassistant.components.sensor import SensorStateClass
+from homeassistant.config_entries import ConfigEntryState
+from homeassistant.const import UnitOfEnergy
+from homeassistant.core import HomeAssistant
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from .conftest import entity_id, load_fixture, plant_id, register_api
+from .conftest import entity_id, load_fixture, register_api
 
 
 @pytest.mark.usefixtures("enable_custom_integrations")
