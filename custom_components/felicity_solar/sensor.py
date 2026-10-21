@@ -394,12 +394,12 @@ class FelicityTotalSensor(CoordinatorEntity[FelicityCoordinator], SensorEntity):
         self.hass = hass
         self.entity_description = description
         self._attr_unique_id = f"felicity_solar_{description.key}"
-        self._attr_device_info = {
-            "identifiers": {AGGREGATE_DEVICE},
-            "manufacturer": "Felicity Solar",
-            "model": "FSolar aggregate",
-            "name": "Felicity Solar",
-        }
+        self._attr_device_info = DeviceInfo(
+            identifiers={AGGREGATE_DEVICE},
+            manufacturer="Felicity Solar",
+            model="FSolar aggregate",
+            name="Felicity Solar",
+        )
 
     @property
     def _coordinators(self) -> list[FelicityCoordinator]:
