@@ -46,12 +46,31 @@ SAMPLE_MINUTES = 5
 #: Samples of a full day (24 h / 5 min).
 SAMPLES_PER_DAY = 24 * 60 // SAMPLE_MINUTES
 
-#: The flow that carries the photovoltaic production.
-PV_FIELD = "pvElectricity"
-
 #: The statistic the Energy Dashboard consumes for the production.
 PLANT_STATISTIC = "plant_pv_energy_total"
 AGGREGATE_STATISTIC = "felicity_solar_total_pv_energy_all_plants"
+
+#: The series of the FSolar history -> the statistic it feeds.
+#:
+#: The mapping was confirmed against the live sensors: the last sample of
+#: each series matches the corresponding live reading to the watt.
+#:
+#: ``sign`` is applied to the samples: the battery reports the discharge as a
+#: negative power, but the counters have to grow.
+SERIES: tuple[tuple[str, str, str, int], ...] = (
+    ("pvElectricity", "plant_pv_energy_total", "pv", 1),
+    ("backupLoad", "plant_load_energy_total", "load", 1),
+    ("batteryCharging", "plant_battery_charging_total", "battery", 1),
+    ("batteryDischarge", "plant_battery_discharge_total", "battery", -1),
+    ("gridInput", "plant_grid_import_total", "grid", 1),
+    ("feedOutput", "plant_grid_export_total", "grid", 1),
+)
+
+#: The aggregate statistics, per series.
+AGGREGATE_SERIES: tuple[tuple[str, str], ...] = (
+    ("pv", "felicity_solar_total_pv_energy_all_plants"),
+    ("grid", "felicity_solar_total_grid_import_all_plants"),
+)
 
 API_URL = "https://shine-api.felicitysolar.com"
 CHART_PATH = "/storageRealtimeData/chart_storageRealtimeData_mate"
@@ -76,8 +95,8 @@ async def _login(email: str, password: str) -> tuple[str, dict[str, str]]:
 
 async def _fetch_series(
     session: aiohttp.ClientSession, headers: dict[str, str], plant_id: str
-) -> list[float]:
-    """Return the PV power series of a plant, in watts."""
+) -> dict[str, list[float]]:
+    """Return the power series of a plant, in watts, keyed by field."""
     async with session.post(
         f"{API_URL}{CHART_PATH}",
         headers=headers,
@@ -85,12 +104,15 @@ async def _fetch_series(
     ) as response:
         payload = await response.json()
     data = payload.get("data") or {}
+    series: dict[str, list[float]] = {}
     for serie in data.get("storageMateDTOS", []):
-        if serie.get("field") == PV_FIELD:
-            return [
-                float(value) if value not in (None, "") else 0.0 for value in serie.get("data", [])
-            ]
-    return []
+        field = serie.get("field")
+        if not field:
+            continue
+        series[field] = [
+            float(value) if value not in (None, "") else 0.0 for value in serie.get("data", [])
+        ]
+    return series
 
 
 def _day_starts(samples: list[float], now: datetime, tz: timezone) -> list[tuple[datetime, int]]:
@@ -116,16 +138,21 @@ def _day_starts(samples: list[float], now: datetime, tz: timezone) -> list[tuple
 
 
 def _hourly_production(
-    samples: list[float], day_start: datetime, day_start_index: int
+    samples: list[float], day_start: datetime, day_start_index: int, sign: int = 1
 ) -> dict[datetime, float]:
-    """Return the kWh produced in each hour of a day."""
+    """Return the kWh of each hour of a day.
+
+    ``sign`` flips the samples, and only the positive part counts: the
+    battery reports the discharge as a negative power, but the counter of the
+    discharged energy has to grow.
+    """
     result: dict[datetime, float] = {}
     for hour in range(24):
         start = hour * (60 // SAMPLE_MINUTES)
         chunk = samples[day_start_index + start : day_start_index + start + (60 // SAMPLE_MINUTES)]
         if not chunk:
             continue
-        kwh = sum(chunk) * (SAMPLE_MINUTES / 60) / 1000
+        kwh = sum(max(0.0, value * sign) for value in chunk) * (SAMPLE_MINUTES / 60) / 1000
         result[day_start + timedelta(hours=hour)] = kwh
     return result
 
@@ -204,52 +231,64 @@ async def main() -> int:
         async with FelicityClient(email, password) as client:
             plants = await client.list_plants()
 
-        aggregate: dict[datetime, float] = {}
+        aggregate: dict[str, dict[datetime, float]] = {key: {} for key, _ in AGGREGATE_SERIES}
         for plant in plants:
             async with aiohttp.ClientSession() as fs:
-                samples = await _fetch_series(fs, fsolar_headers, plant.id)
-            if not samples:
+                series = await _fetch_series(fs, fsolar_headers, plant.id)
+            if not series:
                 print(f"  {plant.name}: sin serie, se omite")
                 continue
 
-            days = _day_starts(samples, now, tz)
-            total_today = 0.0
-            hourly: dict[datetime, float] = {}
-            for day_start, index in days:
-                per_hour = _hourly_production(samples, day_start, index)
-                for hour_start, kwh in per_hour.items():
-                    hourly[hour_start] = hourly.get(hour_start, 0.0) + kwh
-                    aggregate[hour_start] = aggregate.get(hour_start, 0.0) + kwh
-                if day_start.date() == now.date():
-                    total_today = sum(per_hour.values())
-
-            # Verificacion: la serie debe reproducir el contador diario del API.
-            details = await _plant_details(fsolar_headers, plant.id)
-            expected = details.get("todayPv")
-            check = ""
-            if expected is not None:
-                expected_f = float(expected)
-                deviation = abs(total_today - expected_f)
-                check = f"  (API {expected_f:.2f} kWh, desviacion {deviation:.2f})"
-                if deviation > max(0.5, expected_f * 0.1):
-                    print(f"  {plant.name}: la serie NO cuadra{check}, se omite")
-                    continue
-            print(f"  {plant.name}: {len(hourly)} hora(s), hoy {total_today:.2f} kWh{check}")
-
-            if args.dry_run:
-                continue
-
-            # El sensor de la planta: el prefijo sale del nombre de la planta.
             prefix = _plant_prefix(plant.name)
-            statistic = f"sensor.{prefix}_{PLANT_STATISTIC}"
-            count = await _import_statistics(session, ha_token, statistic, hourly)
-            print(f"    importadas {count} estadisticas en {statistic}")
+            details = await _plant_details(fsolar_headers, plant.id)
+
+            for field, statistic_name, group, sign in SERIES:
+                samples = series.get(field)
+                if not samples:
+                    continue
+
+                days = _day_starts(samples, now, tz)
+                hourly: dict[datetime, float] = {}
+                total_today = 0.0
+                for day_start, index in days:
+                    per_hour = _hourly_production(samples, day_start, index, sign)
+                    for hour_start, kwh in per_hour.items():
+                        hourly[hour_start] = hourly.get(hour_start, 0.0) + kwh
+                        if group in aggregate:
+                            bucket = aggregate[group]
+                            bucket[hour_start] = bucket.get(hour_start, 0.0) + kwh
+                    if day_start.date() == now.date():
+                        total_today = sum(per_hour.values())
+
+                # Verificacion: la serie debe reproducir el contador diario del API.
+                check = ""
+                if field == "pvElectricity":
+                    expected = details.get("todayPv")
+                    if expected is not None:
+                        expected_f = float(expected)
+                        deviation = abs(total_today - expected_f)
+                        check = f"  (API {expected_f:.2f} kWh, desviacion {deviation:.2f})"
+                        if deviation > max(0.5, expected_f * 0.1):
+                            print(f"  {plant.name}: la serie NO cuadra{check}, se omite")
+                            continue
+
+                statistic = f"sensor.{prefix}_{statistic_name}"
+                if args.dry_run:
+                    print(
+                        f"  {plant.name:11} {field:18} {len(hourly):3} h  hoy {total_today:7.2f} kWh{check}"
+                    )
+                    continue
+                count = await _import_statistics(session, ha_token, statistic, hourly)
+                print(f"  {plant.name:11} {field:18} {count:3} h importadas en {statistic}{check}")
 
         if not args.dry_run:
-            count = await _import_statistics(
-                session, ha_token, f"sensor.{AGGREGATE_STATISTIC}", aggregate
-            )
-            print(f"  importadas {count} estadisticas en sensor.{AGGREGATE_STATISTIC}")
+            for group, statistic_name in AGGREGATE_SERIES:
+                bucket = aggregate.get(group)
+                if not bucket:
+                    continue
+                statistic = f"sensor.{statistic_name}"
+                count = await _import_statistics(session, ha_token, statistic, bucket)
+                print(f"  {'':11} {'':18} {count:3} h importadas en {statistic}")
 
     return 0
 

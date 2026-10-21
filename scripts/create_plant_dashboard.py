@@ -91,7 +91,7 @@ def _plant_cards(prefix: str, known: set[str]) -> list[dict[str, Any]]:
                 "entity": soc[0],
                 "min": 0,
                 "max": 100,
-                "severity": {"green": 20, "yellow": 40, "red": 0},
+                "severity": {"green": 40, "yellow": 20, "red": 0},
             }
         )
 
@@ -114,7 +114,7 @@ def _plant_cards(prefix: str, known: set[str]) -> list[dict[str, Any]]:
             {
                 "type": "statistics-graph",
                 "title": "Generación (acumulado)",
-                "statistic": total[0],
+                "entities": [total[0]],
                 "chart_type": "bar",
                 "period": "day",
                 "days_to_show": 7,
@@ -124,7 +124,7 @@ def _plant_cards(prefix: str, known: set[str]) -> list[dict[str, Any]]:
             {
                 "type": "statistics-graph",
                 "title": "Generación (mensual)",
-                "statistic": total[0],
+                "entities": [total[0]],
                 "chart_type": "bar",
                 "period": "month",
                 "days_to_show": 365,

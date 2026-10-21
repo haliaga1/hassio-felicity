@@ -34,15 +34,17 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN
-from .coordinator import FelicityCoordinator
+from .coordinator import FelicityCoordinator, FelicityData
 from .counters import LifetimeCounters
 from .entity import FelicityEntity
+from .vendor.felicity_client.models.common import ProductType
 from .vendor.felicity_client.models.plant_details import PlantDetails
 
 _LOGGER = logging.getLogger(__name__)
 
 DetailsFn = Callable[[PlantDetails], float | None]
 CounterFn = Callable[[LifetimeCounters], float | None]
+DataFn = Callable[["FelicityData"], float | None]
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -53,8 +55,26 @@ class FelicityPlantEnergyEntityDescription(SensorEntityDescription):
     #: Set for the sensors that read the accumulated counters instead of the
     #: plant details.
     counter_fn: CounterFn | None = None
+    #: Set for the sensors that read the data of the plant's inverter.
+    data_fn: DataFn | None = None
     #: Whether the counter resets every day.
     resets_daily: bool = False
+
+
+def _load_total(data: FelicityData) -> float | None:
+    """The lifetime AC output of the plant's inverter.
+
+    It is the energy the installation has served to the house, which is what
+    the Home Assistant Energy Dashboard needs to break the consumption down
+    by plant.
+    """
+    for serial_number, device in data.devices.items():
+        if device.product_type is not ProductType.INVERTER:
+            continue
+        snapshot = data.snapshots.get(serial_number)
+        if snapshot is not None:
+            return snapshot.ac_in.energy_total_kwh
+    return None
 
 
 def _pv_total(details: PlantDetails) -> float | None:
@@ -116,6 +136,16 @@ PLANT_ENERGY_DESCRIPTIONS: tuple[FelicityPlantEnergyEntityDescription, ...] = (
         suggested_display_precision=2,
         details_fn=_pv_today,
         resets_daily=True,
+    ),
+    FelicityPlantEnergyEntityDescription(
+        key="plant_load_energy_total",
+        translation_key="plant_load_energy_total",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
+        details_fn=lambda _details: None,
+        data_fn=_load_total,
     ),
     FelicityPlantEnergyEntityDescription(
         key="plant_pv_energy_month",
@@ -302,6 +332,8 @@ class FelicityPlantEnergySensor(FelicityEntity, SensorEntity):
     @property
     def native_value(self) -> Any:
         """The value of the sensor."""
+        if self.entity_description.data_fn is not None:
+            return self.entity_description.data_fn(self.data)
         if self.entity_description.counter_fn is not None:
             counters = self.data.counters
             if counters is None:

@@ -164,3 +164,25 @@ async def test_the_plant_flow_can_be_disabled(
     assert entity_id(hass, f"{plant_id()}_plant_pv_power") is None
     # The energy counters are always available.
     assert entity_id(hass, f"{plant_id()}_plant_pv_energy_total") is not None
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+@respx.mock
+async def test_the_plant_exposes_its_lifetime_load(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """The plant has a lifetime consumption counter, taken from the inverter.
+
+    It is what the Energy Dashboard needs to break the consumption down by
+    plant.
+    """
+    register_api()
+    mock_config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    state = hass.states.get(entity_id(hass, f"{plant_id()}_plant_load_energy_total"))
+    assert state is not None
+    assert state.attributes["state_class"] == SensorStateClass.TOTAL_INCREASING
+    assert state.attributes["unit_of_measurement"] == UnitOfEnergy.KILO_WATT_HOUR
+    assert float(state.state) > 0

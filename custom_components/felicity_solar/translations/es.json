@@ -214,6 +214,9 @@
       },
       "total_battery_discharging_energy": {
         "name": "Descarga de batería total (todas las plantas)"
+      },
+      "plant_load_energy_total": {
+        "name": "Energía de carga total de la planta"
       }
     },
     "binary_sensor": {
