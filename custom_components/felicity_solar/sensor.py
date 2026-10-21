@@ -63,11 +63,12 @@ async def async_setup_entry(
         for description in PLANT_ENERGY_DESCRIPTIONS
     )
 
-    # Los sensores agregados se crean una sola vez, en la primera entrada:
-    # el Energy Dashboard de Home Assistant es uno solo para toda la
-    # instancia, asi que las plantas deben sumarse en una sola entidad.
-    entries = hass.config_entries.async_entries(DOMAIN)
-    if entries and entries[0].entry_id == entry.entry_id:
+    # Los sensores agregados se crean una sola vez para toda la instancia:
+    # el Energy Dashboard de Home Assistant es uno solo, asi que las plantas
+    # deben sumarse en una sola entidad. El flag en ``hass.data`` lo
+    # garantiza, sea cual sea el orden en que se configuren las entradas.
+    if not hass.data.get(_AGGREGATE_FLAG):
+        hass.data[_AGGREGATE_FLAG] = True
         entities.extend(
             FelicityTotalSensor(hass, description) for description in TOTAL_DESCRIPTIONS
         )
@@ -297,6 +298,9 @@ class FelicityTotalEntityDescription(SensorEntityDescription):
 #: The device the aggregate belongs to.
 AGGREGATE_DEVICE = ("felicity_solar", "felicity_solar_aggregate")
 
+#: Marks that the aggregate sensors have already been created.
+_AGGREGATE_FLAG = f"{DOMAIN}_aggregate_created"
+
 TOTAL_DESCRIPTIONS: tuple[FelicityTotalEntityDescription, ...] = (
     FelicityTotalEntityDescription(
         key="total_pv_energy",
@@ -426,36 +430,6 @@ class FelicityTotalSensor(CoordinatorEntity[FelicityCoordinator], SensorEntity):
     def extra_state_attributes(self) -> dict[str, Any]:
         """Expose the contribution of each plant."""
         attributes: dict[str, Any] = {"plant_count": len(self._coordinators)}
-        # TEMPORAL: diagnostico de la resolucion de traducciones.
-        key = self.entity_description.translation_key
-        platform_data = self.platform_data
-        attributes["_debug"] = {
-            "name": str(self.name),
-            "has_entity_name": self.has_entity_name,
-            "has_attr_name": hasattr(self, "_attr_name"),
-            "translation_key": key,
-            "has_platform_data": platform_data is not None,
-            "platform_name": getattr(platform_data, "platform_name", None),
-            "platform_domain": getattr(platform_data, "domain", None),
-            "resolved_key": (
-                f"component.{platform_data.platform_name}.entity."
-                f"{platform_data.domain}.{key}.name"
-                if platform_data is not None
-                else None
-            ),
-            "found": (
-                f"component.{platform_data.platform_name}.entity."
-                f"{platform_data.domain}.{key}.name"
-                in platform_data.platform_translations
-                if platform_data is not None
-                else None
-            ),
-            "sample_keys": (
-                list(platform_data.platform_translations)[:3]
-                if platform_data is not None
-                else None
-            ),
-        }
         for coordinator in self._coordinators:
             data = coordinator.data
             if data is None:
