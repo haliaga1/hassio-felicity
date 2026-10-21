@@ -134,9 +134,17 @@ datos en vivo, planta "Antares" (IVEM8048-II + FLA48100-EU).
       real desde el primer día en vez de 0 kWh
 - [x] Panel de Energía configurado con el agregado, validado sin errores
 
+- [x] **Dashboard por planta** (`scripts/create_plant_dashboard.py`):
+      una vista por planta con su producción acumulada, su potencia y sus
+      contadores, más una vista de resumen. Las entidades se descubren en
+      caliente, no están escritas a mano
+- [x] **Panel de Energía con una fuente solar por planta**: Home Assistant
+      solo limita a 1 la fuente de red, así que cada planta entra como
+      fuente solar propia y el gráfico las separa
+
 ### Prioridad alta
 
-- [ ] Tarjeta de Lovelace propia (flujo de energía + SOC) o un dashboard YAML
+- [ ] Tarjeta de Lovelace propia (flujo de energía + SOC)
 - [ ] `utility_meter` equivalente para cuando la nube no dé contadores
 - [ ] Publicar `felicity-client` en PyPI
 - [ ] Release de GitHub con tag semántico (HACS lo usa para versionar)
