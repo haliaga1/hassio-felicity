@@ -145,6 +145,20 @@ class Device:
         )
 
     @property
+    def friendly_name(self) -> str:
+        """A name that is worth showing to a human.
+
+        Some devices have no alias, and the backend then leaves the serial
+        number there. A serial number makes for a terrible entity id, so
+        the model is used instead.
+        """
+        if self.alias and self.alias != self.serial_number:
+            return self.alias
+        if self.model:
+            return self.model
+        return self.serial_number
+
+    @property
     def is_online(self) -> bool | None:
         """Whether the backend reports the device as online.
 

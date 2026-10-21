@@ -105,6 +105,18 @@ class TestDevice:
             device = Device.from_payload(record)
             assert device.product_type is not ProductType.UNKNOWN, record
 
+    def test_the_friendly_name_falls_back_to_the_model(self) -> None:
+        """A device with no alias has the serial number there; that makes
+        for a terrible entity id, so the model is used instead."""
+        record = load_fixture("list_device_all_type.json")["dataList"][0]
+        device = Device.from_payload(record)
+        assert device.friendly_name != device.serial_number
+        assert device.friendly_name == (device.alias or device.model)
+
+    def test_the_friendly_name_keeps_a_real_alias(self) -> None:
+        device = Device.from_payload({"deviceSn": "X", "alias": "Inversor"})
+        assert device.friendly_name == "Inversor"
+
     def test_reports_offline(self) -> None:
         assert Device.from_payload({"deviceSn": "X", "status": "offline"}).is_online is False
 
@@ -197,6 +209,20 @@ class TestSnapshot:
         )
         assert snapshot.battery.soc == pytest.approx(55.0)
         assert snapshot.battery.voltage == pytest.approx(52.1)
+
+    def test_a_zero_state_of_health_means_not_reported(self) -> None:
+        """A device without a state of health sensor reports 0, which would
+        otherwise show up as an impossible "0 % health"."""
+        snapshot = Snapshot.from_payload(
+            {"deviceSn": "X", "productTypeEnum": "HIGH_FREQUENCY_INVERTER", "emsSoh": "0"}
+        )
+        assert snapshot.battery.soh is None
+
+    def test_a_real_state_of_health_is_kept(self) -> None:
+        snapshot = Snapshot.from_payload(
+            {"deviceSn": "X", "productTypeEnum": "LITHIUM_BATTERY_PACK", "battSoh": "100"}
+        )
+        assert snapshot.battery.soh == pytest.approx(100.0)
 
     def test_parses_the_timestamp(self) -> None:
         payload = load_fixture("snapshot_inverter.json")

@@ -203,7 +203,7 @@ class Snapshot:
                 # the same payload is the aggregate of the whole installation
                 # and can differ by a point. The device's own value wins.
                 soc=to_float(payload.get("battSoc"), to_float(payload.get("emsSoc"))),
-                soh=to_float(payload.get("battSoh"), to_float(payload.get("emsSoh"))),
+                soh=_state_of_health(payload.get("battSoh"), payload.get("emsSoh")),
                 voltage=to_float(payload.get("battVolt"), to_float(payload.get("emsVoltage"))),
                 current=to_float(payload.get("battCurr"), to_float(payload.get("emsCurrent"))),
                 power=to_float(payload.get("bmsPower"), to_float(payload.get("emsPower"))),
@@ -262,6 +262,23 @@ def _cell_voltage(value: Any) -> float | None:
     if abs(number) > 100:
         return number / 1000
     return number
+
+
+def _state_of_health(*values: Any) -> float | None:
+    """Read the state of health, treating a zero as "not reported".
+
+    A device with no state of health sensor reports ``0``, which would
+    otherwise show up as "0 % health" — a physically impossible value for
+    a working battery, and a confusing one on a dashboard.
+    """
+    for value in values:
+        number = to_float(value)
+        if number is None:
+            continue
+        if number <= 0:
+            return None
+        return number
+    return None
 
 
 def _parse_timestamp(raw_epoch: Any, raw_str: Any) -> datetime | None:

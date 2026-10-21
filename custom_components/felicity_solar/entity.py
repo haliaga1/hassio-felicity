@@ -49,7 +49,7 @@ class FelicityEntity(CoordinatorEntity[FelicityCoordinator]):
             identifiers=identifiers,
             manufacturer="Felicity Solar",
             model=self._device.model or "Felicity device",
-            name=self._device.alias or self._device.serial_number,
+            name=self._device.friendly_name,
             serial_number=self._device.serial_number,
             sw_version=self._device.firmware_version,
         )
