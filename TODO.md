@@ -134,7 +134,9 @@ datos en vivo, planta "Antares" (IVEM8048-II + FLA48100-EU).
       horarias solo, a partir del momento de la instalación.
 - [x] Panel de Energía configurado con el agregado, validado sin errores
 
-- [x] **Dashboard por planta** (`scripts/create_plant_dashboard.py`):
+- [x] **Pestañas por planta** (`scripts/create_plant_dashboard.py`): una
+      sola página "Felicity Solar" con una pestaña por planta, cada una con
+      su gráfico de generación
       una vista por planta con su producción acumulada, su potencia y sus
       contadores, más una vista de resumen. Las entidades se descubren en
       caliente, no están escritas a mano
@@ -151,12 +153,12 @@ datos en vivo, planta "Antares" (IVEM8048-II + FLA48100-EU).
 
 ### Prioridad media
 
-- [ ] **Historial real**: `/storageRealtimeData/chart_storageRealtimeData_mate`
-      devuelve la serie de 5 minutos por planta (PV, entrada AC, feed,
-      carga/descarga de batería, carga de respaldo) en W. Con ella se puede
-      hacer un backfill horario correcto. Falta entender la alineación: el
-      array `data` trae 1045 valores y el eje `dataTime` solo 290 etiquetas,
-      así que hay varios periodos concatenados
+- [x] **Historial real** (`scripts/backfill_history.py`): el endpoint
+      `/storageRealtimeData/chart_storageRealtimeData_mate` devuelve la serie
+      de 5 minutos por planta en W. La alineación se resolvió midiendo la
+      cadencia (3 muestras en 13 min = 5 min) y usando el tramo nocturno
+      (puesta de sol 20:55 → salida 07:05). Se verifica contra el contador
+      diario del API antes de escribir nada: desviación del 1-2 %
 - [ ] Soporte del nodo `EU` verificado contra el backend
 - [ ] Servicios de escritura (`/deviceCommand/*`) — v2
 - [ ] `number.py` para SOC mínimo/máximo — v2

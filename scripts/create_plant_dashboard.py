@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Create a Home Assistant dashboard with one view per Felicity Solar plant.
+"""Create a Home Assistant dashboard for each Felicity Solar plant.
 
 Home Assistant has a **single** Energy Dashboard for the whole instance, so
 there is no built-in way to show "the energy page of Antares" and "the energy
-page of Antupirén" separately. The built-in panel can, however, hold one
-**solar source per plant**, which already separates them in the graphs.
+page of Antupirén" separately. The built-in panel can hold one *solar source
+per plant*, which already separates them in the graphs.
 
-This script adds the missing piece: a dashboard with a view per plant, where
-each view shows that plant's own production history and live values. The
-entities are **discovered** from the running instance, so nothing is
-hardcoded and a plant with unusual names still works.
+This script adds the missing piece: **one dashboard per plant**, so each one
+gets its own tab in the sidebar, plus a summary dashboard. The entities are
+**discovered** from the running instance, so nothing is hardcoded and a plant
+whose battery has no alias is still handled.
 
 Usage::
 
@@ -28,13 +28,12 @@ from typing import Any
 
 import aiohttp
 
-#: The prefix of the entities of each plant, as the integration names them.
-PLANTS: tuple[tuple[str, str], ...] = (
-    ("Antares", "antares"),
-    ("Antupirén", "antupiren"),
+#: The plant title, the prefix of its entities and the slug of its dashboard.
+PLANTS: tuple[tuple[str, str, str], ...] = (
+    ("Antares", "antares", "antares"),
+    ("Antupirén", "antupiren", "antupiren"),
 )
 
-DASHBOARD_TITLE = "Felicity Solar"
 DASHBOARD_ICON = "mdi:solar-power"
 
 
@@ -44,20 +43,11 @@ def _entities_of(prefix: str, known: set[str], suffix: str) -> list[str]:
     return [candidate] if candidate in known else []
 
 
-def _plant_view(title: str, prefix: str, known: set[str]) -> dict[str, Any]:
-    """Build the view of one plant, with the entities that exist."""
-    # El SOC de la bateria: cualquier sensor de SOC de esa planta.
-    soc = [
-        entity
-        for entity in sorted(known)
-        if entity.startswith(f"sensor.{prefix}_") and entity.endswith("_battery_state_of_charge")
-    ]
+def _plant_cards(prefix: str, known: set[str]) -> list[dict[str, Any]]:
+    """Build the cards of a plant's page, mirroring the official app."""
+    cards: list[dict[str, Any]] = []
 
-    cards: list[dict[str, Any]] = [
-        {"type": "heading", "heading": title, "icon": "mdi:solar-power"},
-    ]
-
-    # "Datos de Hoy" como en la app oficial: PV, carga, descarga, entrada CA.
+    # "Datos de Hoy": PV, carga, descarga, entrada y salida de red.
     hoy = _entities_of(prefix, known, "plant_pv_energy_today")
     hoy += _entities_of(prefix, known, "plant_load_energy_today")
     hoy += _entities_of(prefix, known, "plant_battery_charging_today")
@@ -87,41 +77,12 @@ def _plant_view(title: str, prefix: str, known: set[str]) -> dict[str, Any]:
             }
         )
 
-    total = _entities_of(prefix, known, "plant_pv_energy_total")
-    if total:
-        cards.append(
-            {
-                "type": "statistics-graph",
-                "title": "Producción acumulada",
-                "statistic": total[0],
-                "chart_type": "bar",
-                "period": "month",
-                "days_to_show": 365,
-            }
-        )
-
-    power = _entities_of(prefix, known, "plant_pv_power")
-    if power:
-        cards.append(
-            {
-                "type": "history-graph",
-                "title": "Potencia FV",
-                "entities": [{"entity": power[0], "name": "Producción"}],
-                "hours_to_show": 24,
-            }
-        )
-
-    battery = _entities_of(prefix, known, "plant_battery_charging_total")
-    battery += _entities_of(prefix, known, "plant_battery_discharge_total")
-    if battery:
-        cards.append(
-            {
-                "type": "entities",
-                "title": "Batería (acumulado)",
-                "show_header_toggle": False,
-                "entities": battery,
-            }
-        )
+    # El estado de carga de la bateria.
+    soc = [
+        entity
+        for entity in sorted(known)
+        if entity.startswith(f"sensor.{prefix}_") and entity.endswith("_battery_state_of_charge")
+    ]
     if soc:
         cards.append(
             {
@@ -134,16 +95,47 @@ def _plant_view(title: str, prefix: str, known: set[str]) -> dict[str, Any]:
             }
         )
 
-    return {
-        "title": title,
-        "type": "sections",
-        "max_columns": 3,
-        "cards": cards,
-    }
+    # La potencia de hoy, en su grafico.
+    power = _entities_of(prefix, known, "plant_pv_power")
+    if power:
+        cards.append(
+            {
+                "type": "history-graph",
+                "title": "Potencia FV (24 h)",
+                "entities": [{"entity": power[0], "name": "Producción"}],
+                "hours_to_show": 24,
+            }
+        )
+
+    # El grafico de generacion de la pagina de Energia, pero de esta planta.
+    total = _entities_of(prefix, known, "plant_pv_energy_total")
+    if total:
+        cards.append(
+            {
+                "type": "statistics-graph",
+                "title": "Generación (acumulado)",
+                "statistic": total[0],
+                "chart_type": "bar",
+                "period": "day",
+                "days_to_show": 7,
+            }
+        )
+        cards.append(
+            {
+                "type": "statistics-graph",
+                "title": "Generación (mensual)",
+                "statistic": total[0],
+                "chart_type": "bar",
+                "period": "month",
+                "days_to_show": 365,
+            }
+        )
+
+    return cards
 
 
-def _summary_view(known: set[str]) -> dict[str, Any]:
-    """The view with the totals of every plant."""
+def _summary_cards(known: set[str]) -> list[dict[str, Any]]:
+    """Build the cards of the summary page."""
     totals = [
         entity
         for entity in (
@@ -155,62 +147,65 @@ def _summary_view(known: set[str]) -> dict[str, Any]:
         )
         if entity in known
     ]
-    cards: list[dict[str, Any]] = [
-        {"type": "heading", "heading": "Todas las plantas", "icon": "mdi:solar-power-variant"}
-    ]
-    if "sensor.felicity_solar_total_pv_energy_all_plants" in known:
-        cards.append(
-            {
-                "type": "statistics-graph",
-                "title": "Producción acumulada",
-                "statistic": "sensor.felicity_solar_total_pv_energy_all_plants",
-                "chart_type": "bar",
-                "period": "month",
-                "days_to_show": 365,
-            }
-        )
-    if "sensor.felicity_solar_total_pv_power_all_plants" in known:
-        cards.append(
-            {
-                "type": "history-graph",
-                "title": "Potencia FV total",
-                "entities": [
-                    {
-                        "entity": "sensor.felicity_solar_total_pv_power_all_plants",
-                        "name": "Producción",
-                    }
-                ],
-                "hours_to_show": 24,
-            }
-        )
+    cards: list[dict[str, Any]] = []
     if totals:
         cards.append(
             {
                 "type": "entities",
-                "title": "Totales",
+                "title": "Totales (todas las plantas)",
                 "show_header_toggle": False,
                 "entities": totals,
             }
         )
+    power = _entities_of("felicity_solar", known, "total_pv_power_all_plants")
+    if power:
+        cards.append(
+            {
+                "type": "history-graph",
+                "title": "Potencia FV total (24 h)",
+                "entities": [{"entity": power[0], "name": "Producción"}],
+                "hours_to_show": 24,
+            }
+        )
+    # El grafico de generacion de la pagina de Energia, con una serie por planta.
     cards.append(
         {
-            "type": "vertical-stack",
-            "title": "Panel de Energía de Home Assistant",
-            "cards": [
-                {"type": "energy-date-selection", "collection_key": "energy_felicity"},
-                {"type": "energy-solar-graph", "title": "Producción solar"},
-                {"type": "energy-usage-graph", "title": "Consumo"},
-            ],
+            "type": "energy-solar-graph",
+            "title": "Generación (todas las plantas)",
         }
     )
-    return {"title": "Resumen", "type": "sections", "max_columns": 3, "cards": cards}
+    return cards
 
 
-def build_dashboard(known: set[str]) -> dict[str, Any]:
-    """Build the dashboard configuration."""
-    views = [_summary_view(known)]
-    views.extend(_plant_view(title, prefix, known) for title, prefix in PLANTS)
-    return {"views": views}
+def build_dashboards(known: set[str]) -> dict[str, dict[str, Any]]:
+    """Build the configuration of the dashboard.
+
+    A single dashboard with one **view per plant**: Home Assistant shows the
+    views as tabs of the same page.
+    """
+    views: list[dict[str, Any]] = [
+        {
+            "title": "Resumen",
+            "path": "resumen",
+            "type": "masonry",
+            "cards": _summary_cards(known),
+        }
+    ]
+    for title, prefix, slug in PLANTS:
+        views.append(
+            {
+                "title": title,
+                "path": slug,
+                "type": "masonry",
+                "cards": _plant_cards(prefix, known),
+            }
+        )
+    return {
+        "felicity-solar": {
+            "title": "Felicity Solar",
+            "views": views,
+        }
+    }
 
 
 async def _entities(session: aiohttp.ClientSession, url: str) -> set[str]:
@@ -219,11 +214,56 @@ async def _entities(session: aiohttp.ClientSession, url: str) -> set[str]:
         return {state["entity_id"] for state in await response.json()}
 
 
+async def _save_dashboard(
+    ws: aiohttp.ClientWSMessage,
+    url_path: str,
+    title: str,
+    config: dict[str, Any],
+    next_id: int,
+) -> tuple[str, int]:
+    """Create the dashboard if needed and save its configuration."""
+    await ws.send_json({"id": next_id, "type": "lovelace/dashboards/list"})
+    existing = await ws.receive_json()
+    next_id += 1
+    found = any(d.get("url_path") == url_path for d in existing.get("result", []))
+
+    if not found:
+        await ws.send_json(
+            {
+                "id": next_id,
+                "type": "lovelace/dashboards/create",
+                "url_path": url_path,
+                "title": title,
+                "icon": DASHBOARD_ICON,
+                "show_in_sidebar": True,
+                "require_admin": False,
+                "mode": "storage",
+            }
+        )
+        created = await ws.receive_json()
+        next_id += 1
+        if not created.get("success"):
+            return f"ERROR al crear: {created.get('error')}", next_id
+
+    await ws.send_json(
+        {
+            "id": next_id,
+            "type": "lovelace/config/save",
+            "url_path": url_path,
+            "config": config,
+        }
+    )
+    saved = await ws.receive_json()
+    next_id += 1
+    if not saved.get("success"):
+        return f"ERROR al guardar: {saved.get('error')}", next_id
+    return "ok", next_id
+
+
 async def main() -> int:
-    """Create or update the dashboard."""
+    """Create or update the dashboards."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dry-run", action="store_true", help="only show the config")
-    parser.add_argument("--url-path", default="felicity-solar", help="URL of the dashboard")
     args = parser.parse_args()
 
     url = os.environ.get("HA_URL")
@@ -235,11 +275,11 @@ async def main() -> int:
     headers = {"Authorization": f"Bearer {token}"}
     async with aiohttp.ClientSession(headers=headers) as session:
         known = await _entities(session, url)
-        config = build_dashboard(known)
+        dashboards = build_dashboards(known)
         if args.dry_run:
             import json
 
-            print(json.dumps(config, indent=2, ensure_ascii=False))
+            print(json.dumps(dashboards, indent=2, ensure_ascii=False))
             return 0
 
         ws_url = url.replace("http://", "ws://").replace("https://", "wss://") + "/api/websocket"
@@ -248,52 +288,12 @@ async def main() -> int:
             await ws.send_json({"type": "auth", "access_token": token})
             await ws.receive_json()
 
-            await ws.send_json({"id": 1, "type": "lovelace/dashboards/list"})
-            existing = await ws.receive_json()
-            found = any(d.get("url_path") == args.url_path for d in existing.get("result", []))
+            next_id = 10
+            for url_path, spec in dashboards.items():
+                result, next_id = await _save_dashboard(ws, url_path, spec["title"], spec, next_id)
+                print(f"  {url_path:26} {result}")
 
-            if found:
-                await ws.send_json(
-                    {
-                        "id": 2,
-                        "type": "lovelace/config/save",
-                        "url_path": args.url_path,
-                        "config": config,
-                    }
-                )
-                response = await ws.receive_json()
-                print(f"dashboard '{args.url_path}' actualizado: {response.get('success')}")
-            else:
-                await ws.send_json(
-                    {
-                        "id": 2,
-                        "type": "lovelace/dashboards/create",
-                        "url_path": args.url_path,
-                        "title": DASHBOARD_TITLE,
-                        "icon": DASHBOARD_ICON,
-                        "show_in_sidebar": True,
-                        "require_admin": False,
-                        "mode": "storage",
-                    }
-                )
-                response = await ws.receive_json()
-                if not response.get("success"):
-                    print(f"ERROR al crear: {response.get('error')}")
-                    return 1
-                print(f"dashboard '{args.url_path}' creado")
-
-                await ws.send_json(
-                    {
-                        "id": 3,
-                        "type": "lovelace/config/save",
-                        "url_path": args.url_path,
-                        "config": config,
-                    }
-                )
-                response = await ws.receive_json()
-                print(f"configuracion guardada: {response.get('success')}")
-
-    print(f"\nAbre: {url.rstrip('/')}/{args.url_path}")
+    print(f"\nAbre: {url.rstrip('/')}/felicity-solar")
     return 0
 
 
