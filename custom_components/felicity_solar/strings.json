@@ -196,6 +196,24 @@
       },
       "plant_battery_discharging_total": {
         "name": "Plant battery discharge total"
+      },
+      "total_pv_energy": {
+        "name": "Total PV energy (all plants)"
+      },
+      "total_pv_power": {
+        "name": "Total PV power (all plants)"
+      },
+      "total_grid_import_energy": {
+        "name": "Total grid import (all plants)"
+      },
+      "total_grid_export_energy": {
+        "name": "Total grid export (all plants)"
+      },
+      "total_battery_charging_energy": {
+        "name": "Total battery charging (all plants)"
+      },
+      "total_battery_discharging_energy": {
+        "name": "Total battery discharge (all plants)"
       }
     },
     "binary_sensor": {

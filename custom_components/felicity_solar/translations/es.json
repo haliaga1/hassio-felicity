@@ -196,6 +196,24 @@
       },
       "plant_battery_discharging_total": {
         "name": "Descarga de batería total de la planta"
+      },
+      "total_pv_energy": {
+        "name": "Energía FV total (todas las plantas)"
+      },
+      "total_pv_power": {
+        "name": "Potencia FV total (todas las plantas)"
+      },
+      "total_grid_import_energy": {
+        "name": "Importación de red total (todas las plantas)"
+      },
+      "total_grid_export_energy": {
+        "name": "Exportación de red total (todas las plantas)"
+      },
+      "total_battery_charging_energy": {
+        "name": "Carga de batería total (todas las plantas)"
+      },
+      "total_battery_discharging_energy": {
+        "name": "Descarga de batería total (todas las plantas)"
       }
     },
     "binary_sensor": {

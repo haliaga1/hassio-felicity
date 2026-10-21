@@ -73,7 +73,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await coordinator.async_start_websocket()
 
-    await hass.config_entries.async_forward_entry_setups(entry, ["sensor", "binary_sensor"])
+    await hass.config_entries.async_forward_entry_setups(
+        entry, ["sensor", "binary_sensor"]
+    )
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
     return True
 

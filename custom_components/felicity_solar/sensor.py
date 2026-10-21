@@ -15,14 +15,15 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import UnitOfPower
+from homeassistant.const import UnitOfEnergy, UnitOfPower
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN
-from .coordinator import FelicityCoordinator
+from .coordinator import FelicityCoordinator, FelicityData
 from .descriptions import SENSOR_DESCRIPTIONS, FelicitySensorEntityDescription
 from .entity import FelicityEntity, slugify
 from .plant_energy import (
@@ -61,6 +62,15 @@ async def async_setup_entry(
         FelicityPlantEnergySensor(coordinator, plant_name, description)
         for description in PLANT_ENERGY_DESCRIPTIONS
     )
+
+    # Los sensores agregados se crean una sola vez, en la primera entrada:
+    # el Energy Dashboard de Home Assistant es uno solo para toda la
+    # instancia, asi que las plantas deben sumarse en una sola entidad.
+    entries = hass.config_entries.async_entries(DOMAIN)
+    if entries and entries[0].entry_id == entry.entry_id:
+        entities.extend(
+            FelicityTotalSensor(hass, description) for description in TOTAL_DESCRIPTIONS
+        )
 
     async_add_entities(entities)
     _LOGGER.info("Added %s Felicity Solar sensor(s)", len(entities))
@@ -274,3 +284,154 @@ class FelicityPlantSensor(FelicityEntity, SensorEntity):
 def plant_entity_id(plant_name: str, key: str) -> str:
     """Build the expected entity id of a plant sensor."""
     return f"sensor.felicity_{slugify(plant_name)}_{key}"
+
+
+@dataclass(frozen=True, kw_only=True)
+class FelicityTotalEntityDescription(SensorEntityDescription):
+    """A description of an aggregated sensor."""
+
+    #: The attribute of the plant data to add up.
+    attribute: str
+
+
+#: The device the aggregate belongs to.
+AGGREGATE_DEVICE = ("felicity_solar", "felicity_solar_aggregate")
+
+TOTAL_DESCRIPTIONS: tuple[FelicityTotalEntityDescription, ...] = (
+    FelicityTotalEntityDescription(
+        key="total_pv_energy",
+        translation_key="total_pv_energy",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
+        attribute="pv_energy_total",
+    ),
+    FelicityTotalEntityDescription(
+        key="total_pv_power",
+        translation_key="total_pv_power",
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfPower.WATT,
+        suggested_display_precision=0,
+        attribute="pv_power",
+    ),
+    FelicityTotalEntityDescription(
+        key="total_grid_import_energy",
+        translation_key="total_grid_import_energy",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
+        attribute="grid_import_total",
+    ),
+    FelicityTotalEntityDescription(
+        key="total_grid_export_energy",
+        translation_key="total_grid_export_energy",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
+        attribute="grid_export_total",
+    ),
+    FelicityTotalEntityDescription(
+        key="total_battery_charging_energy",
+        translation_key="total_battery_charging_energy",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
+        attribute="battery_charging_total",
+    ),
+    FelicityTotalEntityDescription(
+        key="total_battery_discharging_energy",
+        translation_key="total_battery_discharging_energy",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
+        attribute="battery_discharging_total",
+    ),
+)
+
+
+def _plant_value(data: FelicityData, attribute: str) -> float | None:
+    """Read one aggregated attribute of a plant."""
+    details = data.plant_details
+    if details is None:
+        return None
+    if attribute == "pv_energy_total":
+        return details.accumulated_pv_kwh
+    if attribute == "pv_power":
+        for flow in data.flows.values():
+            return flow.pv_power
+        return None
+    counters = data.counters
+    if counters is None:
+        return None
+    return {
+        "grid_import_total": counters.grid_import_kwh,
+        "grid_export_total": counters.grid_export_kwh,
+        "battery_charging_total": counters.battery_charging_kwh,
+        "battery_discharging_total": counters.battery_discharging_kwh,
+    }.get(attribute)
+
+
+class FelicityTotalSensor(CoordinatorEntity[FelicityCoordinator], SensorEntity):
+    """A sensor that sums the same value over every configured plant."""
+
+    _attr_has_entity_name = False
+    entity_description: FelicityTotalEntityDescription
+
+    def __init__(self, hass: HomeAssistant, description: FelicityTotalEntityDescription) -> None:
+        """Initialise the aggregated sensor."""
+        # The coordinator is only used to be notified of the updates; the
+        # value is read from every coordinator of the domain.
+        first = next(iter(hass.data.get(DOMAIN, {}).values()), None)
+        if first is None:
+            raise ValueError("no Felicity Solar coordinator is available")
+        super().__init__(first)
+        self.hass = hass
+        self.entity_description = description
+        self._attr_unique_id = f"felicity_solar_{description.key}"
+        self._attr_name = description.name or description.key
+        self._attr_device_info = {
+            "identifiers": {AGGREGATE_DEVICE},
+            "manufacturer": "Felicity Solar",
+            "model": "FSolar aggregate",
+            "name": "Felicity Solar (todas las plantas)",
+        }
+
+    @property
+    def _coordinators(self) -> list[FelicityCoordinator]:
+        """Every coordinator of the integration."""
+        return list(self.hass.data.get(DOMAIN, {}).values())
+
+    @property
+    def native_value(self) -> Any:
+        """The sum of the value over every plant."""
+        total = 0.0
+        found = False
+        for coordinator in self._coordinators:
+            data = coordinator.data
+            if data is None:
+                continue
+            value = _plant_value(data, self.entity_description.attribute)
+            if value is None:
+                continue
+            total += value
+            found = True
+        return total if found else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Expose the contribution of each plant."""
+        attributes: dict[str, Any] = {"plant_count": len(self._coordinators)}
+        for coordinator in self._coordinators:
+            data = coordinator.data
+            if data is None:
+                continue
+            name = data.plant_details.name if data.plant_details else coordinator.plant_id
+            value = _plant_value(data, self.entity_description.attribute)
+            attributes[str(name)] = value
+        return attributes
