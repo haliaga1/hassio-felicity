@@ -380,7 +380,7 @@ def _plant_value(data: FelicityData, attribute: str) -> float | None:
 class FelicityTotalSensor(CoordinatorEntity[FelicityCoordinator], SensorEntity):
     """A sensor that sums the same value over every configured plant."""
 
-    _attr_has_entity_name = False
+    _attr_has_entity_name = True
     entity_description: FelicityTotalEntityDescription
 
     def __init__(self, hass: HomeAssistant, description: FelicityTotalEntityDescription) -> None:
@@ -394,12 +394,11 @@ class FelicityTotalSensor(CoordinatorEntity[FelicityCoordinator], SensorEntity):
         self.hass = hass
         self.entity_description = description
         self._attr_unique_id = f"felicity_solar_{description.key}"
-        self._attr_name = description.name or description.key
         self._attr_device_info = {
             "identifiers": {AGGREGATE_DEVICE},
             "manufacturer": "Felicity Solar",
             "model": "FSolar aggregate",
-            "name": "Felicity Solar (todas las plantas)",
+            "name": "Felicity Solar",
         }
 
     @property
