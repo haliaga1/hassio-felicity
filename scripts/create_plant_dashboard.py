@@ -250,9 +250,7 @@ async def main() -> int:
 
             await ws.send_json({"id": 1, "type": "lovelace/dashboards/list"})
             existing = await ws.receive_json()
-            found = any(
-                d.get("url_path") == args.url_path for d in existing.get("result", [])
-            )
+            found = any(d.get("url_path") == args.url_path for d in existing.get("result", []))
 
             if found:
                 await ws.send_json(

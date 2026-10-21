@@ -14,8 +14,6 @@ import respx
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.felicity_solar.const import DOMAIN
-
 from .conftest import (
     API_URL,
     battery_sn,
