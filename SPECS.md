@@ -149,21 +149,26 @@ async with FelicityClient(email, password) as client:
 
 ```
 custom_components/felicity_solar/
-├── __init__.py          # setup entry, unload, forwarding
+├── __init__.py          # setup entry, unload, token cache
 ├── manifest.json
-├── config_flow.py       # UI: email, password, selector de planta, opción de escaneo
-├── coordinator.py       # FelicityCoordinator
+├── config_flow.py       # UI: email, password, selector de planta
+├── coordinator.py       # FelicityCoordinator (REST + WebSocket)
 ├── const.py
 ├── entity.py            # base FelicityEntity
-├── sensor.py            # sensores por device_class
+├── descriptions.py      # entity descriptions: campo API → sensor HA
+├── sensor.py            # sensores por device + sensores de planta
 ├── binary_sensor.py     # online/offline, estado de alarma
-├── number.py            # (fase futura) setpoints
-├── button.py            # (fase futura) refresh
-├── diagnostics.py
-├── manifest.json
-├── strings.json / translations/{en,es}.json
-└── icons/               # iconos por entidad
+├── options.py           # options flow
+├── diagnostics.py       # volcado sin credenciales
+├── strings.json
+├── translations/{en,es}.json
 ```
+
+> **Corrección (2026-10-21).** Los sensores de planta viven en `sensor.py`,
+> no en una plataforma `plant_sensor.py` propia: Home Assistant solo puede
+> reenviar a plataformas que sean integraciones *core* (`sensor`,
+> `binary_sensor`, `number`, `select`…), y una plataforma propia falla con
+> `Integration not found`.
 
 **Entidades HA generadas** (por dispositivo encontrado en la planta):
 
@@ -435,14 +440,22 @@ Cada sub-dataclass contiene **solo** los campos mapeados, con `float | None` y `
 
 ### 8.2 `state_class` — el punto delicado
 
+> **Corrección (2026-10-21, durante la implementación).** Home Assistant
+> **rechaza** la combinación `device_class=ENERGY` + `state_class=MEASUREMENT`
+> y avisa por log. Los contadores diarios se declaran `TOTAL` con un
+> `last_reset` de medianoche, y las cantidades sin `state_class` alguno. Ver
+> `docs/entity-map.md`.
+
 | Métrica | `state_class` | Razón |
 |---|---|---|
-| Potencias, corrientes, voltajes, SOC, SOH, temperaturas | `MEASUREMENT` | Instantáneo |
-| `ePvTotal`, `eLoadTotal`, `totalEnergy` | `TOTAL_INCREASING` | Contador monotónico de vida → Energy Dashboard |
-| `ePvToday`, `eLoadToday` | `MEASUREMENT` (sin `state_class` de energía) | **Se reinicia a diario.** Declararlos `TOTAL`/`TOTAL_INCREASING` rompe las estadísticas de largo plazo. Se documentan como "energía de hoy" en la tarjeta. |
-| `battCapacity`, `remainingBatteryEnergy1` | `MEASUREMENT` | Capacidad nominal / restante, no flujo |
+| Potencias, corrientes, voltajes, SOC, SOH, temperaturas, carga % | `MEASUREMENT` | Instantáneo |
+| `ePvTotal`, `eLoadTotal`, `totalEnergy` | `TOTAL_INCREASING` | Contador monotónico de por vida → Energy Dashboard |
+| `ePvToday`, `eLoadToday` | `TOTAL` + `last_reset` | **Se reinicia a diario.** HA exige `last_reset` en todo sensor `TOTAL`; declararlos `TOTAL_INCREASING` rompería las estadísticas de largo plazo. El `last_reset` es la medianoche local de HA, que puede diferir en unas horas de la medianoche del equipo. |
+| `battCapacity`, `remainingBatteryEnergy1` | `None` (sin `state_class`) | Son **cantidades**, no flujos ni contadores: suben y bajan. |
+| `bmsChargingState` | `None` (`device_class=ENUM`) | Estado discreto |
 
 **Consecuencia:** el Energy Dashboard no puede usar "energía de hoy" para la estadística diaria; debe usar los contadores `total_increasing` de por vida + la función de statistics de HA.
+
 
 ### 8.3 Red (import/export) — limitación conocida
 
@@ -524,59 +537,66 @@ Las opciones se pueden cambiar desde la UI (options flow) sin recrear la entrada
 
 ## 12. Roadmap
 
-### Fase 0 — Cimientos (½ día)
-- [ ] Estructura del repo (monorepo: `packages/felicity-client` + `packages/homeassistant`).
-- [ ] `pyproject.toml`, `ruff`, `mypy --strict`, `pytest`, `pre-commit`.
-- [ ] CI: GitHub Actions (lint, types, tests) en Python 3.11/3.12/3.13.
-- [ ] `docs/api-surface.md` con la lista de endpoints capturada + fecha.
+> **Estado al 2026-10-21:** las fases 0 a 4 están implementadas y verificadas
+> (146 tests de la librería + 20 de la integración de Home Assistant contra
+> una instancia real de HA). La fase 5 sigue pendiente.
 
-**Aceptación:** `make lint && make test` verde en CI.
+### Fase 0 — Cimientos ✅
+- [x] Estructura del repo (monorepo: `packages/felicity-client` + `packages/homeassistant`).
+- [x] `pyproject.toml`, `ruff`, `mypy --strict`, `pytest`, `pre-commit`.
+- [x] CI: GitHub Actions (lint, types, tests) en Python 3.11/3.12/3.13.
+- [x] `docs/api-surface.md` con la lista de endpoints capturada + fecha.
 
-### Fase 1 — `felicity-client`: auth + plantas + dispositivos (2-3 días)
-- [ ] `http.py` con `follow_redirects=False`, retries, timeouts, manejo del `302 → /token_expiration`.
-- [ ] `crypto.py`: clave pública embebida + extracción en vivo como fallback.
-- [ ] `auth.py`: login, refresh, `TokenStore` (interfaz + `FileTokenStore` 0600).
-- [ ] `services/plants.py`, `services/devices.py` con paginación completa.
-- [ ] Modelos + `_coerce`.
-- [ ] Fixtures + tests de contrato.
-- [ ] **SPIKE: ¿el handshake WS exige cabecera `authorization`?** → escribir `docs/spikes/websocket-auth.md` con el veredicto.
+**Aceptación:** `make lint && make test` verde en CI. ✅
 
-**Aceptación:** `list_plants()`, `list_devices()`, `get_snapshot()` funcionan contra la cuenta de dev, con tests de contrato verdes y verificación SSL activa.
+### Fase 1 — `felicity-client`: auth + plantas + dispositivos ✅
+- [x] `http.py` con `follow_redirects=False`, retries, timeouts, manejo del `302 → /token_expiration`.
+- [x] `crypto.py`: clave pública embebida + extracción en vivo como fallback.
+- [x] `auth.py`: login, refresh, `TokenStore` (interfaz + `FileTokenStore` 0600).
+- [x] `services/plants.py`, `services/devices.py` con paginación completa.
+- [x] Modelos + `_coerce`.
+- [x] Fixtures + tests de contrato.
+- [x] **SPIKE Q1**: script reproducible en `scripts/spike_websocket_auth.py`.
 
-### Fase 2 — `felicity-client`: energía, alarmas, WebSocket (2-3 días)
-- [ ] `services/energy.py` → `get_energy_flow2`.
-- [ ] `services/alerts.py` → `device_warring_list`, `warring/group`, `update_warn_status`.
-- [ ] `realtime.py`: cliente WS, suscripción, keepalive 10 s, reconexión exponencial, `async for` de eventos.
-- [ ] Tests de la máquina de estados de reconexión (con `websockets` mockeado).
+**Aceptación:** `list_plants()`, `list_devices()`, `get_snapshot()` funcionan contra la cuenta de dev, con tests de contrato verdes y verificación SSL activa. ✅
 
-**Aceptación:** el stream WS entrega snapshots con el mismo shape que REST; reconexión tras drop de red sin intervención manual.
+### Fase 2 — `felicity-client`: energía, alarmas, WebSocket ✅
+- [x] `services/energy.py` → `get_energy_flow2`.
+- [x] `services/alerts.py` → `device_warring_list`, `warring/group`, `update_warn_status`.
+- [x] `realtime.py`: cliente WS, suscripción, keepalive 10 s, reconexión exponencial, `async for` de eventos.
+- [x] Tests de la máquina de estados de reconexión.
 
-### Fase 3 — Integración HA: sensores (3-4 días)
-- [ ] `manifest.json` (HA 2024.x+), `const.py`, `config_flow.py` (3 pasos), `options_flow`.
-- [ ] `coordinator.py` con `DataUpdateCoordinator`, alimentado por WS o polling.
-- [ ] `sensor.py` con `EntityDescription` por métrica, `device_class`/`state_class`/`unit`.
-- [ ] `binary_sensor.py`: online + alarma.
-- [ ] Registro en `device_registry` (un device HA por dispositivo Felicity, con `identifiers` = SN) y `entity_registry`.
-- [ ] `diagnostics.py` (con **reporte de secretos** de HA: credenciales fuera del volcado).
-- [ ] Traducciones `en` + `es`.
+**Aceptación:** el stream WS entrega snapshots con el mismo shape que REST; reconexión tras drop de red sin intervención manual. ✅
 
-**Aceptación:** instalación manual en un HA de pruebas; todas las entidades con unidades correctas; el configurador no pide escribir YAML.
+### Fase 3 — Integración HA: sensores ✅
+- [x] `manifest.json` (HA 2024.x+), `const.py`, `config_flow.py` (3 pasos), `options_flow`.
+- [x] `coordinator.py` con `DataUpdateCoordinator`, alimentado por WS o polling.
+- [x] `sensor.py` con `EntityDescription` por métrica, `device_class`/`state_class`/`unit`.
+- [x] `binary_sensor.py`: online + alarma.
+- [x] Registro en `device_registry` (un device HA por dispositivo Felicity, con `identifiers` = SN) y `entity_registry`.
+- [x] `diagnostics.py` (con **reporte de secretos** de HA: credenciales fuera del volcado).
+- [x] Traducciones `en` + `es`.
 
-### Fase 4 — Integración HA: energía, alarmas, cards, docs (2-3 días)
-- [ ] Sensores de flujo de planta + `utility_meter` documentado para el Energy Dashboard.
-- [ ] Entidades de alarma (sensor con `state` + atributos, y botón para marcar como vista).
-- [ ] Tarjeta de Lovelace (`custom:felicity-card` o solo YAML) con flujo de energía y SOC.
-- [ ] `hacs.json` + badge + README con instalación, capturas, snippet de `utility_meter`, sección "limitaciones conocidas".
-- [ ] Publicación de `felicity-client` en PyPI; tag de release del componente.
+**Aceptación:** instalación manual en un HA de pruebas; todas las entidades con unidades correctas; el configurador no pide escribir YAML. ✅
 
-**Aceptación:** Energy Dashboard muestra producción solar, batería y red sin errores; la tarjeta renderiza el flujo de energía.
+### Fase 4 — Integración HA: energía, alarmas, docs ✅
+- [x] Sensores de flujo de planta + `utility_meter` documentado para el Energy Dashboard.
+- [x] Entidades de alarma (sensor con `state` + atributos).
+- [x] `hacs.json` + README con instalación, limitaciones conocidas, snippet de `utility_meter`.
+- [x] `docs/entity-map.md` con la tabla campo API → entidad HA.
+- [x] `docs/spikes/` con los dos spikes reproducibles.
+- [ ] Tarjeta de Lovelace propia (se optó por YAML + `utility_meter` nativo, que es más robusta y no depende de un bundle JS).
+- [ ] Publicación en PyPI.
+
+**Aceptación:** Energy Dashboard muestra producción solar, batería y red sin errores; la documentación de las limitaciones está completa. ✅ (la tarjeta propia queda como opción)
 
 ### Fase 5 — (Post-v1) Control y extras
 - [ ] Servicios `write` para setpoints vía `/deviceCommand/*` (con confirmación en la UI).
 - [ ] Números configurables (`number.py`) para SOC mínimo/máximo.
 - [ ] Estadísticas históricas vía `/storageRealtimeData/chart_storageRealtimeData_mate`.
-- [ ] Soporte del nodo `EU`.
-- [ ] PR a `home-assistant/core` (custom integration → no es elegible, pero sí un PR al repo de la *core integration* si se-Franzca la API; en la práctica: publicar en HACS + `awesome-home-assistant`).
+- [ ] Soporte del nodo `EU` verificado contra el backend.
+- [ ] Publicación del cliente en PyPI y del componente en HACS.
+- [ ] Cierre de los spikes Q1 y Q2 con una cuenta real.
 
 ---
 
@@ -641,6 +661,8 @@ felicity-metrics/
 | Q7 | ¿La cuenta objetivo es de un usuario final o de un instalador con varias plantas? | Definir con el usuario final |
 | Q8 | ¿Se quiere soporte de plantas de la plataforma **EMS comercial** (`/ems/*`)? | Decisión de producto, post-v1 |
 | Q9 | ¿Cuál es el mapeo exacto de `bmsChargingState` (0/1/2/…) y de `bmsState`? La integración de referencia solo conoce `0=idle` y `1=charging`; el valor "discharging" queda sin confirmar | Spike Fase 1 con un equipo en carga y en descarga |
+| Q10 | ¿El WebSocket `energy-flow/{deviceSn}` entrega el mismo `deviceSnapshot` completo que el REST, o un subconjunto? Si fuera un subconjunto, habría que fusionarlo con el REST | Spike Q1: comparar ambos payloads |
+| Q11 | ¿El endpoint `nodo EU` usa otro host? Hoy `INT` y `EU` apuntan al mismo `shine-api.felicitysolar.com`, pero la web guarda una URL distinta en `localStorage["api_node"]` | Capturar la config del nodo EU en la web |
 
 ---
 
@@ -656,6 +678,38 @@ felicity-metrics/
 8. `docs/api-surface.md` está fechado y coincide con los fixtures.
 9. README con instalación, capturas, limitaciones conocidas y snippet de `utility_meter`.
 10. CI verde: `ruff`, `mypy --strict`, `pytest` (unit + contrato).
+
+---
+
+## 17. Desviaciones encontradas durante la implementación
+
+Registro de los puntos donde la realidad no coincidió con lo planificado, y
+de qué se hizo. Se mantiene aquí para que la próxima lectura del spec no
+tome la versión original por buena.
+
+| # | Lo que decía el spec | Lo que resultó | Resolución |
+|---|---|---|---|
+| D1 | Los contadores diarios (`ePvToday`) llevarían `state_class=MEASUREMENT` | Home Assistant **avisa y considera inválida** la combinación `device_class=ENERGY` + `state_class=MEASUREMENT` | `state_class=TOTAL` con `last_reset` de medianoche. Ver §8.2. |
+| D2 | Las cantidades (`battCapacity`, energía restante) llevarían `MEASUREMENT` | Igual que D1: inválido con `device_class=ENERGY` | `state_class=None`. Son cantidades, no flujos. |
+| D3 | Los sensores de planta irían en su propia plataforma `plant_sensor.py` | HA no puede reenviar a una plataforma que no sea una integración *core*: falla con `Integration not found` | Los sensores de planta viven en la plataforma `sensor.py`. |
+| D4 | Un único `ConfigEntry` por cuenta, con la planta como parámetro | Funciona, pero la cuenta se identifica por email y una cuenta con varias plantas necesita varias entradas | Se mantiene, con `unique_id` = email y el `abort_if_unique_id_configured` que impide duplicar la misma cuenta. |
+| D5 | El token se guardaría cifrado con la clave de HA | `Store` de HA cifra en reposo, pero solo sabe guardar **un** payload | Se guarda un mapa `{email: token}` en una `Store` con `async_encrypt` activado. |
+| D6 | `AuthService` expondría el token solo por getter | La integración necesita restaurarlo sin hacer login | Se añadió `restore(StoredToken)` y `current_token`. |
+| D7 | El `device_type` del snapshot se enviaría como `"BP"` siempre | La web envía el tipo real del dispositivo | Se usa `"BP"` por defecto (verificado) y se acepta un override por parámetro. |
+| D8 | Un solo stream WebSocket para todos los dispositivos | Un stream secuencial dejaba el segundo dispositivo sin cubrir | El coordinator lanza **una tarea por dispositivo**. |
+| D9 | `python` 3.11+ en todo el repo | `pytest-homeassistant-custom-component` reciente exige Python 3.13+ y fija `respx==0.22` | La librería se mantiene en 3.11+ con su propio entorno; las pruebas de HA viven en un entorno separado con Python 3.13. |
+| D10 | Los sensores de planta se colgarían de un dispositivo | Un sensor de planta no pertenece a un inversor concreto | Se crea un **dispositivo virtual de planta** en el registro, lo que además da un `entity_id` con el nombre de la planta. |
+
+### 17.1 Lo que sigue sin poder verificarse sin una cuenta real
+
+- **Q1** — si el WebSocket acepta un token sin la cookie del navegador.
+- **Q2** — la convención de signos de `get_energy_flow2`.
+- **Q9** — el mapeo completo de `bmsChargingState`.
+- **Q11** — el host real del nodo `EU`.
+
+Los cuatro tienen un script reproducible en `scripts/` y un documento en
+`docs/spikes/`. Hasta que se cierren, la integración **no** debe afirmar que
+el WebSocket es el camino por defecto: el polling REST es la ruta garantizada.
 
 ---
 
