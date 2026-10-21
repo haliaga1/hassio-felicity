@@ -184,6 +184,18 @@
       },
       "plant_rated_power": {
         "name": "Plant rated power"
+      },
+      "plant_grid_import_total": {
+        "name": "Plant grid import total"
+      },
+      "plant_grid_export_total": {
+        "name": "Plant grid export total"
+      },
+      "plant_battery_charging_total": {
+        "name": "Plant battery charging total"
+      },
+      "plant_battery_discharging_total": {
+        "name": "Plant battery discharge total"
       }
     },
     "binary_sensor": {

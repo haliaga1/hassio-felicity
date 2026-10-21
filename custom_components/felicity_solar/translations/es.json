@@ -184,6 +184,18 @@
       },
       "plant_rated_power": {
         "name": "Potencia nominal de la planta"
+      },
+      "plant_grid_import_total": {
+        "name": "Importación de red total de la planta"
+      },
+      "plant_grid_export_total": {
+        "name": "Exportación de red total de la planta"
+      },
+      "plant_battery_charging_total": {
+        "name": "Carga de batería total de la planta"
+      },
+      "plant_battery_discharging_total": {
+        "name": "Descarga de batería total de la planta"
       }
     },
     "binary_sensor": {
