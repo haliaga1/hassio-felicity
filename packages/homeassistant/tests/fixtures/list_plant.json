@@ -1,0 +1,31 @@
+{
+  "code": 200,
+  "data": {
+    "dataList": [
+      {
+        "id": "plant-0001",
+        "plantName": "Casa Principal",
+        "address": "Av. Siempre Viva 742, Santiago",
+        "countryId": "CL",
+        "latitude": "-33.4489",
+        "longitude": "-70.6693",
+        "ratedPower": "10000",
+        "deviceCount": 3
+      },
+      {
+        "id": "plant-0002",
+        "plantName": "Casa Secondary",
+        "address": "Camping 12, Valpo",
+        "countryId": "CL",
+        "latitude": "-33.0472",
+        "longitude": "-71.6127",
+        "ratedPower": "5000",
+        "deviceCount": 1
+      }
+    ],
+    "total": 2,
+    "pageNum": 1,
+    "pageSize": 50
+  },
+  "message": "success"
+}

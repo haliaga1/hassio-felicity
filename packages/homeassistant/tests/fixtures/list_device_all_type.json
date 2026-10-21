@@ -1,0 +1,68 @@
+{
+  "code": 200,
+  "data": {
+    "dataList": [
+      {
+        "deviceSn": "INV0001",
+        "deviceModel": "IVGM8KLPT2G1",
+        "deviceType": "IVGM",
+        "productTypeEnum": "HIGH_FREQUENCY_INVERTER",
+        "typeCode": 119,
+        "subType": 516,
+        "plantId": "plant-0001",
+        "plantName": "Casa Principal",
+        "status": "online",
+        "firmwareVersion": "1.2.3",
+        "alias": "Inversor Principal",
+        "collectorSn": "COL0001",
+        "ratedPower": "8000"
+      },
+      {
+        "deviceSn": "BAT0001",
+        "deviceModel": "FLA48100TG2",
+        "deviceType": "FLA",
+        "productTypeEnum": "LITHIUM_BATTERY_PACK",
+        "typeCode": 119,
+        "subType": 258,
+        "plantId": "plant-0001",
+        "plantName": "Casa Principal",
+        "status": "online",
+        "firmwareVersion": "2.0.1",
+        "alias": "Bateria 1",
+        "collectorSn": "COL0001",
+        "ratedEnergy": "5.12"
+      },
+      {
+        "deviceSn": "CTL0001",
+        "deviceModel": "HP5000",
+        "deviceType": "CONTROLLER",
+        "productTypeEnum": "CONTROLLER",
+        "plantId": "plant-0001",
+        "plantName": "Casa Principal",
+        "status": "offline",
+        "firmwareVersion": "0.9.9",
+        "alias": "Controlador",
+        "ratedPower": "5000"
+      },
+      {
+        "deviceSn": "INV0002",
+        "deviceModel": "IVGM5KLPT2G1",
+        "deviceType": "IVGM",
+        "productTypeEnum": "HIGH_FREQUENCY_INVERTER",
+        "typeCode": 119,
+        "subType": 516,
+        "plantId": "plant-0002",
+        "plantName": "Casa Secondary",
+        "status": "offline",
+        "firmwareVersion": "1.2.3",
+        "alias": "Inversor Secundario",
+        "collectorSn": "COL0002",
+        "ratedPower": "5000"
+      }
+    ],
+    "total": 4,
+    "pageNum": 1,
+    "pageSize": 50
+  },
+  "message": "success"
+}

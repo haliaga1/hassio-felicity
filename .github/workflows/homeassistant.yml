@@ -1,0 +1,45 @@
+name: HA integration
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  integration:
+    name: Home Assistant integration tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python 3.13
+        run: uv python install 3.13
+
+      - name: Create the Home Assistant test environment
+        run: |
+          uv venv --python 3.13 packages/homeassistant/.venv
+          VIRTUAL_ENV=packages/homeassistant/.venv uv pip install \
+            "pytest-homeassistant-custom-component==0.13.316" \
+            "homeassistant" \
+            -e packages/felicity-client
+
+      - name: Run the tests
+        working-directory: packages/homeassistant
+        run: .venv/bin/python -m pytest tests/ -q
+
+  library:
+    name: Library tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Run the unit and contract tests
+        run: uv run pytest -m "not integration" -q

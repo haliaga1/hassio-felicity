@@ -1,0 +1,19 @@
+[project]
+name = "felicity-solar-homeassistant"
+version = "0.1.0"
+description = "Home Assistant custom integration for Felicity Solar"
+requires-python = ">=3.13"
+dependencies = ["felicity-client"]
+
+[project.optional-dependencies]
+test = [
+    "pytest-homeassistant-custom-component==0.13.316",
+    "homeassistant",
+    "respx",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-ra --strict-markers"
+norecursedirs = [".venv", "custom_components"]

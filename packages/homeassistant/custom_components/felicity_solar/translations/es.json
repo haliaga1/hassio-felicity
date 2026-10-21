@@ -1,0 +1,168 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Felicity Solar",
+        "description": "Inicia sesión con la cuenta que usas en la web de FSolar.",
+        "data": {
+          "email": "Correo electrónico",
+          "password": "Contraseña",
+          "api_node": "Nodo de la API"
+        }
+      },
+      "plant": {
+        "title": "Selecciona una planta",
+        "description": "Elige la instalación que quieres exponer. Disponibles: {plants}",
+        "data": {
+          "plant_id": "Planta"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "El correo o la contraseña son incorrectos.",
+      "cannot_connect": "No se pudo conectar con la API de FSolar.",
+      "no_plants": "Esta cuenta no tiene ninguna planta asociada.",
+      "unknown": "Error inesperado."
+    },
+    "abort": {
+      "already_configured": "Esta cuenta ya está configurada."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Opciones de Felicity Solar",
+        "data": {
+          "scan_interval": "Intervalo de actualización (segundos)",
+          "poll_interval": "Intervalo de sondeo cuando el WebSocket cae (segundos)",
+          "use_websocket": "Usar el WebSocket para datos en tiempo real",
+          "enable_plant_flow": "Exponer el flujo de energía de la planta",
+          "enable_alerts": "Exponer las alarmas"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "pv_power": {
+        "name": "Potencia FV"
+      },
+      "pv_total_power": {
+        "name": "Potencia FV total"
+      },
+      "pv_voltage": {
+        "name": "Tensión FV"
+      },
+      "pv_current": {
+        "name": "Corriente FV"
+      },
+      "pv_energy_today": {
+        "name": "Energía FV de hoy"
+      },
+      "pv_energy_total": {
+        "name": "Energía FV total"
+      },
+      "grid_voltage": {
+        "name": "Tensión de red"
+      },
+      "grid_frequency": {
+        "name": "Frecuencia de red"
+      },
+      "grid_power": {
+        "name": "Potencia de red"
+      },
+      "ac_output_voltage": {
+        "name": "Tensión de salida AC"
+      },
+      "ac_output_current": {
+        "name": "Corriente de salida AC"
+      },
+      "ac_output_power": {
+        "name": "Potencia de salida AC"
+      },
+      "load_percentage": {
+        "name": "Carga"
+      },
+      "load_energy_today": {
+        "name": "Energía de carga de hoy"
+      },
+      "load_energy_total": {
+        "name": "Energía de carga total"
+      },
+      "battery_soc": {
+        "name": "Estado de carga de la batería"
+      },
+      "battery_soh": {
+        "name": "Estado de salud de la batería"
+      },
+      "battery_voltage": {
+        "name": "Tensión de la batería"
+      },
+      "battery_current": {
+        "name": "Corriente de la batería"
+      },
+      "battery_power": {
+        "name": "Potencia de la batería"
+      },
+      "battery_capacity": {
+        "name": "Capacidad de la batería"
+      },
+      "battery_remaining_energy": {
+        "name": "Energía restante de la batería"
+      },
+      "battery_charging_state": {
+        "name": "Estado de carga",
+        "state": {
+          "idle": "En reposo",
+          "charging": "Cargando",
+          "discharging": "Descargando",
+          "unknown": "Desconocido"
+        }
+      },
+      "cell_voltage_max": {
+        "name": "Tensión máxima de celda"
+      },
+      "cell_voltage_min": {
+        "name": "Tensión mínima de celda"
+      },
+      "battery_temperature_max": {
+        "name": "Temperatura máxima de la batería"
+      },
+      "battery_temperature_min": {
+        "name": "Temperatura mínima de la batería"
+      },
+      "device_temperature_max": {
+        "name": "Temperatura máxima del equipo"
+      },
+      "total_energy": {
+        "name": "Energía total"
+      },
+      "wifi_signal": {
+        "name": "Señal Wi-Fi"
+      },
+      "work_mode": {
+        "name": "Modo de trabajo"
+      },
+      "plant_pv_power": {
+        "name": "Potencia FV de la planta"
+      },
+      "plant_load_power": {
+        "name": "Potencia de carga de la planta"
+      },
+      "plant_battery_power": {
+        "name": "Potencia de batería de la planta"
+      },
+      "plant_grid_power": {
+        "name": "Potencia de red de la planta"
+      }
+    },
+    "binary_sensor": {
+      "online": {
+        "name": "En línea"
+      },
+      "alarm": {
+        "name": "Alarma"
+      }
+    }
+  }
+}

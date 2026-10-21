@@ -1,0 +1,168 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Felicity Solar",
+        "description": "Sign in with the account you use on the FSolar web app.",
+        "data": {
+          "email": "Email",
+          "password": "Password",
+          "api_node": "API node"
+        }
+      },
+      "plant": {
+        "title": "Select a plant",
+        "description": "Choose the installation to expose. Available: {plants}",
+        "data": {
+          "plant_id": "Plant"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "The email or the password is wrong.",
+      "cannot_connect": "Could not reach the FSolar API.",
+      "no_plants": "This account has no plant attached to it.",
+      "unknown": "Unexpected error."
+    },
+    "abort": {
+      "already_configured": "This account is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Felicity Solar options",
+        "data": {
+          "scan_interval": "Refresh interval (seconds)",
+          "poll_interval": "Polling interval when the WebSocket is down (seconds)",
+          "use_websocket": "Use the WebSocket for real-time updates",
+          "enable_plant_flow": "Expose the plant energy flow",
+          "enable_alerts": "Expose the warnings"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "pv_power": {
+        "name": "PV power"
+      },
+      "pv_total_power": {
+        "name": "PV total power"
+      },
+      "pv_voltage": {
+        "name": "PV voltage"
+      },
+      "pv_current": {
+        "name": "PV current"
+      },
+      "pv_energy_today": {
+        "name": "PV energy today"
+      },
+      "pv_energy_total": {
+        "name": "PV energy total"
+      },
+      "grid_voltage": {
+        "name": "Grid voltage"
+      },
+      "grid_frequency": {
+        "name": "Grid frequency"
+      },
+      "grid_power": {
+        "name": "Grid power"
+      },
+      "ac_output_voltage": {
+        "name": "AC output voltage"
+      },
+      "ac_output_current": {
+        "name": "AC output current"
+      },
+      "ac_output_power": {
+        "name": "AC output power"
+      },
+      "load_percentage": {
+        "name": "Load"
+      },
+      "load_energy_today": {
+        "name": "Load energy today"
+      },
+      "load_energy_total": {
+        "name": "Load energy total"
+      },
+      "battery_soc": {
+        "name": "Battery state of charge"
+      },
+      "battery_soh": {
+        "name": "Battery state of health"
+      },
+      "battery_voltage": {
+        "name": "Battery voltage"
+      },
+      "battery_current": {
+        "name": "Battery current"
+      },
+      "battery_power": {
+        "name": "Battery power"
+      },
+      "battery_capacity": {
+        "name": "Battery capacity"
+      },
+      "battery_remaining_energy": {
+        "name": "Battery remaining energy"
+      },
+      "battery_charging_state": {
+        "name": "Battery charging state",
+        "state": {
+          "idle": "Idle",
+          "charging": "Charging",
+          "discharging": "Discharging",
+          "unknown": "Unknown"
+        }
+      },
+      "cell_voltage_max": {
+        "name": "Maximum cell voltage"
+      },
+      "cell_voltage_min": {
+        "name": "Minimum cell voltage"
+      },
+      "battery_temperature_max": {
+        "name": "Maximum battery temperature"
+      },
+      "battery_temperature_min": {
+        "name": "Minimum battery temperature"
+      },
+      "device_temperature_max": {
+        "name": "Maximum device temperature"
+      },
+      "total_energy": {
+        "name": "Total energy"
+      },
+      "wifi_signal": {
+        "name": "Wi-Fi signal"
+      },
+      "work_mode": {
+        "name": "Work mode"
+      },
+      "plant_pv_power": {
+        "name": "Plant PV power"
+      },
+      "plant_load_power": {
+        "name": "Plant load power"
+      },
+      "plant_battery_power": {
+        "name": "Plant battery power"
+      },
+      "plant_grid_power": {
+        "name": "Plant grid power"
+      }
+    },
+    "binary_sensor": {
+      "online": {
+        "name": "Online"
+      },
+      "alarm": {
+        "name": "Alarm"
+      }
+    }
+  }
+}

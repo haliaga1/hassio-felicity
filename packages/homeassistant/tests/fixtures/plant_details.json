@@ -1,0 +1,12 @@
+{
+  "code": 200,
+  "data": {
+    "id": "plant-0001",
+    "plantName": "Casa Principal",
+    "address": "Av. Siempre Viva 742, Santiago",
+    "countryId": "CL",
+    "installCapacity": "10.0",
+    "createTime": "2024-03-11 14:22:03"
+  },
+  "message": "success"
+}

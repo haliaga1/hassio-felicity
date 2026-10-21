@@ -1,0 +1,19 @@
+{
+  "code": 200,
+  "data": {
+    "deviceSn": "INV0001",
+    "plantId": "plant-0001",
+    "pvPower": "2943.8",
+    "loadPower": "1204.5",
+    "batteryPower": "-658.5",
+    "gridPower": "1204.5",
+    "acRInPower": "1204.5",
+    "acTotalOutActPower": "1204.5",
+    "emsPower": "-658.5",
+    "loadPercent": "48",
+    "time": "2026-01-01 12:00:00",
+    "status": "online",
+    "type": "BP"
+  },
+  "message": "success"
+}
