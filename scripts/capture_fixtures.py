@@ -64,6 +64,12 @@ _FREE_TEXT = (
     "countryName",
     "phone",
     "contact",
+    "realName",
+    "custodian",
+    "companyName",
+    "company",
+    "accountName",
+    "nickname",
 )
 
 
@@ -210,15 +216,29 @@ def main() -> int:
         )
         print(f"wrote {target.name}")
 
-    # The leak check: no serial number or account id may survive.
+    # The leak check: no serial number, account id or personal name may
+    # survive the redaction.
     blob = json.dumps(fixtures)
     leaked = set(
         re.findall(r'"(?:deviceSn|invDeviceSn|owner|parentId|userId)"\s*:\s*"([^"]+)"', blob)
     )
-    suspicious = {value for value in leaked if not re.fullmatch(r"[A-Z]+[A-Z0-9]*\d+", value)}
+    suspicious = {value for value in leaked if not re.fullmatch(r"ID[0-9A-Z]*\d+", value)}
     if suspicious:
         print(f"WARNING: identifiers still present: {sorted(suspicious)[:5]}", file=sys.stderr)
         return 1
+
+    # No personal name may survive either.
+    names = {
+        value
+        for value in re.findall(
+            r'"(?:realName|custodian|ownerName|installer)"\s*:\s*"([^"]+)"', blob
+        )
+        if not value.startswith("<")
+    }
+    if names:
+        print(f"WARNING: personal names still present: {sorted(names)[:5]}", file=sys.stderr)
+        return 1
+
     print(f"redaction ok: {len(fixtures)} fixture(s) written")
     return 0
 
