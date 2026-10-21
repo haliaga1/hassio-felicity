@@ -426,6 +426,36 @@ class FelicityTotalSensor(CoordinatorEntity[FelicityCoordinator], SensorEntity):
     def extra_state_attributes(self) -> dict[str, Any]:
         """Expose the contribution of each plant."""
         attributes: dict[str, Any] = {"plant_count": len(self._coordinators)}
+        # TEMPORAL: diagnostico de la resolucion de traducciones.
+        key = self.entity_description.translation_key
+        platform_data = self.platform_data
+        attributes["_debug"] = {
+            "name": str(self.name),
+            "has_entity_name": self.has_entity_name,
+            "has_attr_name": hasattr(self, "_attr_name"),
+            "translation_key": key,
+            "has_platform_data": platform_data is not None,
+            "platform_name": getattr(platform_data, "platform_name", None),
+            "platform_domain": getattr(platform_data, "domain", None),
+            "resolved_key": (
+                f"component.{platform_data.platform_name}.entity."
+                f"{platform_data.domain}.{key}.name"
+                if platform_data is not None
+                else None
+            ),
+            "found": (
+                f"component.{platform_data.platform_name}.entity."
+                f"{platform_data.domain}.{key}.name"
+                in platform_data.platform_translations
+                if platform_data is not None
+                else None
+            ),
+            "sample_keys": (
+                list(platform_data.platform_translations)[:3]
+                if platform_data is not None
+                else None
+            ),
+        }
         for coordinator in self._coordinators:
             data = coordinator.data
             if data is None:
