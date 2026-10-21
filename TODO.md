@@ -128,10 +128,10 @@ datos en vivo, planta "Antares" (IVEM8048-II + FLA48100-EU).
 - [x] **Sensores agregados** de todas las plantas
       (`sensor.felicity_solar_total_*_all_plants`): el Energy Dashboard de HA
       es único para toda la instancia
-- [x] **Backfill del recorder** (`scripts/backfill_statistics.py`): el API
-      publica la producción del día y el total de por vida, y su diferencia es
-      exactamente lo producido desde medianoche → el panel muestra la cifra
-      real desde el primer día en vez de 0 kWh
+- [x] **Backfill del recorder**: se implementó y **se descartó**. Importar
+      la producción del día como una única estadística a medianoche produce
+      un pico engañoso en el gráfico. El recorder reconstruye las sumas
+      horarias solo, a partir del momento de la instalación.
 - [x] Panel de Energía configurado con el agregado, validado sin errores
 
 - [x] **Dashboard por planta** (`scripts/create_plant_dashboard.py`):
@@ -151,7 +151,12 @@ datos en vivo, planta "Antares" (IVEM8048-II + FLA48100-EU).
 
 ### Prioridad media
 
-- [ ] Historial: `/storageRealtimeData/chart_storageRealtimeData_mate`
+- [ ] **Historial real**: `/storageRealtimeData/chart_storageRealtimeData_mate`
+      devuelve la serie de 5 minutos por planta (PV, entrada AC, feed,
+      carga/descarga de batería, carga de respaldo) en W. Con ella se puede
+      hacer un backfill horario correcto. Falta entender la alineación: el
+      array `data` trae 1045 valores y el eje `dataTime` solo 290 etiquetas,
+      así que hay varios periodos concatenados
 - [ ] Soporte del nodo `EU` verificado contra el backend
 - [ ] Servicios de escritura (`/deviceCommand/*`) — v2
 - [ ] `number.py` para SOC mínimo/máximo — v2

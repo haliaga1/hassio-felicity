@@ -46,19 +46,6 @@ def _entities_of(prefix: str, known: set[str], suffix: str) -> list[str]:
 
 def _plant_view(title: str, prefix: str, known: set[str]) -> dict[str, Any]:
     """Build the view of one plant, with the entities that exist."""
-    energy = _entities_of(prefix, known, "plant_pv_energy_today") + _entities_of(
-        prefix, known, "plant_pv_energy_month"
-    )
-    energy += _entities_of(prefix, known, "plant_pv_energy_total")
-    energy += _entities_of(prefix, known, "plant_load_energy_today")
-    energy += _entities_of(prefix, known, "plant_grid_import_today")
-    energy += _entities_of(prefix, known, "plant_grid_export_today")
-
-    battery = _entities_of(prefix, known, "plant_battery_charging_today")
-    battery += _entities_of(prefix, known, "plant_battery_discharge_today")
-    battery += _entities_of(prefix, known, "plant_battery_charging_total")
-    battery += _entities_of(prefix, known, "plant_battery_discharge_total")
-
     # El SOC de la bateria: cualquier sensor de SOC de esa planta.
     soc = [
         entity
@@ -69,6 +56,36 @@ def _plant_view(title: str, prefix: str, known: set[str]) -> dict[str, Any]:
     cards: list[dict[str, Any]] = [
         {"type": "heading", "heading": title, "icon": "mdi:solar-power"},
     ]
+
+    # "Datos de Hoy" como en la app oficial: PV, carga, descarga, entrada CA.
+    hoy = _entities_of(prefix, known, "plant_pv_energy_today")
+    hoy += _entities_of(prefix, known, "plant_load_energy_today")
+    hoy += _entities_of(prefix, known, "plant_battery_charging_today")
+    hoy += _entities_of(prefix, known, "plant_battery_discharge_today")
+    hoy += _entities_of(prefix, known, "plant_grid_import_today")
+    hoy += _entities_of(prefix, known, "plant_grid_export_today")
+    if hoy:
+        cards.append(
+            {
+                "type": "entities",
+                "title": "Datos de hoy",
+                "show_header_toggle": False,
+                "entities": hoy,
+            }
+        )
+
+    # "Datos Estadisticos": mes, ano y total.
+    stats = _entities_of(prefix, known, "plant_pv_energy_this_month")
+    stats += _entities_of(prefix, known, "plant_pv_energy_total")
+    if stats:
+        cards.append(
+            {
+                "type": "entities",
+                "title": "Datos estadísticos",
+                "show_header_toggle": False,
+                "entities": stats,
+            }
+        )
 
     total = _entities_of(prefix, known, "plant_pv_energy_total")
     if total:
@@ -94,20 +111,13 @@ def _plant_view(title: str, prefix: str, known: set[str]) -> dict[str, Any]:
             }
         )
 
-    if energy:
-        cards.append(
-            {
-                "type": "entities",
-                "title": "Energía",
-                "show_header_toggle": False,
-                "entities": energy,
-            }
-        )
+    battery = _entities_of(prefix, known, "plant_battery_charging_total")
+    battery += _entities_of(prefix, known, "plant_battery_discharge_total")
     if battery:
         cards.append(
             {
                 "type": "entities",
-                "title": "Batería",
+                "title": "Batería (acumulado)",
                 "show_header_toggle": False,
                 "entities": battery,
             }
