@@ -254,10 +254,13 @@ class FelicityPlantSensor(FelicityEntity, SensorEntity):
 
     @property
     def _flow(self) -> EnergyFlow | None:
-        """The energy flow of the first device that reported one."""
-        for flow in self.data.flows.values():
-            return flow
-        return None
+        """The energy flow of the plant's inverter.
+
+        The order of the devices is not guaranteed, so the flow of the
+        first one in the list would be the battery's on some plants and
+        the inverter's on others.
+        """
+        return self.coordinator.primary_flow
 
     @property
     def native_value(self) -> Any:
