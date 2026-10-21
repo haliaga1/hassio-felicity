@@ -21,10 +21,6 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util import dt as dt_util
 
-from .vendor.felicity_client.models.common import Device, ProductType
-from .vendor.felicity_client.models.energy import EnergyFlow
-from .vendor.felicity_client.models.snapshot import Snapshot
-
 from .const import DOMAIN
 from .coordinator import FelicityCoordinator
 from .descriptions import SENSOR_DESCRIPTIONS, FelicitySensorEntityDescription
@@ -33,6 +29,9 @@ from .plant_energy import (
     PLANT_ENERGY_DESCRIPTIONS,
     FelicityPlantEnergySensor,
 )
+from .vendor.felicity_client.models.common import Device, ProductType
+from .vendor.felicity_client.models.energy import EnergyFlow
+from .vendor.felicity_client.models.snapshot import Snapshot
 
 _LOGGER = logging.getLogger(__name__)
 

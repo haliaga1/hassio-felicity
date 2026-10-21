@@ -3,13 +3,21 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
 import httpx
 import pytest
 import respx
-from custom_components.felicity_solar.const import (
+
+# Home Assistant discovers custom integrations by importing the
+# ``custom_components`` package, so the repository root has to be importable.
+REPO_ROOT = Path(__file__).resolve().parents[3]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from custom_components.felicity_solar.const import (  # noqa: E402
     CONF_API_NODE,
     CONF_DEVICE_SERIALS,
     CONF_EMAIL,
@@ -20,9 +28,9 @@ from custom_components.felicity_solar.const import (
     CONF_SCAN_INTERVAL,
     DOMAIN,
 )
-from homeassistant.core import HomeAssistant
-from homeassistant.helpers import entity_registry as er
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from homeassistant.core import HomeAssistant  # noqa: E402
+from homeassistant.helpers import entity_registry as er  # noqa: E402
+from pytest_homeassistant_custom_component.common import MockConfigEntry  # noqa: E402
 
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures"
 

@@ -8,10 +8,9 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity import EntityDescription
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .vendor.felicity_client.models.common import Device, ProductType
-
 from .const import DOMAIN
 from .coordinator import FelicityCoordinator, FelicityData
+from .vendor.felicity_client.models.common import Device, ProductType
 
 
 def slugify(value: str) -> str:

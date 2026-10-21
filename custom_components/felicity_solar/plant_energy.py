@@ -28,11 +28,10 @@ from homeassistant.const import UnitOfEnergy, UnitOfPower
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.util import dt as dt_util
 
-from .vendor.felicity_client.models.plant_details import PlantDetails
-
 from .const import DOMAIN
 from .coordinator import FelicityCoordinator
 from .entity import FelicityEntity
+from .vendor.felicity_client.models.plant_details import PlantDetails
 
 _LOGGER = logging.getLogger(__name__)
 

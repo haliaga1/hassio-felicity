@@ -14,12 +14,11 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityDescription
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .vendor.felicity_client.models.alerts import Alert
-
 from .const import DOMAIN
 from .coordinator import FelicityCoordinator
 from .entity import FelicityEntity
 from .sensor import _devices_to_expose
+from .vendor.felicity_client.models.alerts import Alert
 
 _LOGGER = logging.getLogger(__name__)
 

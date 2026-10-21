@@ -23,7 +23,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "packages/felicity-client/src/felicity_client"
-TARGET = ROOT / "packages/homeassistant/custom_components/felicity_solar/vendor/felicity_client"
+TARGET = ROOT / "custom_components/felicity_solar/vendor/felicity_client"
 
 #: Files that must not be vendored.
 EXCLUDED = {"__pycache__", "py.typed.orig"}
@@ -61,7 +61,7 @@ def main() -> int:
     print(f"vendored {copied} module(s) into {TARGET.relative_to(ROOT)}")
 
     # The integration must import the vendored copy, never the installed one.
-    integration = ROOT / "packages/homeassistant/custom_components/felicity_solar"
+    integration = ROOT / "custom_components/felicity_solar"
     import re
 
     absolute_import = re.compile(r"^\s*(from|import)\s+felicity_client\b", re.MULTILINE)

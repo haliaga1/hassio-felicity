@@ -14,8 +14,6 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
-from .vendor.felicity_client import FelicityClient, StoredToken
-
 from .const import (
     API_URLS,
     CONF_API_NODE,
@@ -25,6 +23,7 @@ from .const import (
     WS_URLS,
 )
 from .coordinator import FelicityCoordinator
+from .vendor.felicity_client import FelicityClient, StoredToken
 
 _LOGGER = logging.getLogger(__name__)
 

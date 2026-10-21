@@ -14,9 +14,6 @@ from homeassistant.helpers.selector import (
     SelectSelectorMode,
 )
 
-from .vendor.felicity_client import FelicityAuthError, FelicityClient
-from .vendor.felicity_client.exceptions import FelicityError
-
 from .const import (
     API_URLS,
     CONF_API_NODE,
@@ -31,6 +28,8 @@ from .const import (
     DOMAIN,
     WS_URLS,
 )
+from .vendor.felicity_client import FelicityAuthError, FelicityClient
+from .vendor.felicity_client.exceptions import FelicityError
 
 _LOGGER = logging.getLogger(__name__)
 

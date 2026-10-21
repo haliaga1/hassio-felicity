@@ -1,7 +1,7 @@
 [project]
 name = "felicity-solar-homeassistant"
 version = "0.1.0"
-description = "Home Assistant custom integration for Felicity Solar"
+description = "Home Assistant custom integration for Felicity Solar (tests)"
 requires-python = ">=3.13"
 dependencies = ["felicity-client"]
 

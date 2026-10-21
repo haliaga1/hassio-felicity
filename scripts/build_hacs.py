@@ -25,7 +25,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "packages/homeassistant"
+SOURCE = ROOT
 DIST = ROOT / "dist/hacs"
 
 #: What ends up in the published tree.
@@ -39,9 +39,7 @@ def main() -> int:
     DIST.mkdir(parents=True)
 
     for name in INCLUDE:
-        source = ROOT / name if name in {"LICENSE"} else SOURCE / name
-        if not source.exists():
-            source = ROOT / name
+        source = ROOT / name
         if not source.exists():
             print(f"missing: {source}", file=sys.stderr)
             return 1

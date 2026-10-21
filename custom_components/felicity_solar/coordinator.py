@@ -26,18 +26,6 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .vendor.felicity_client import (
-    Alert,
-    Device,
-    EnergyFlow,
-    FelicityAuthError,
-    FelicityClient,
-    FelicityError,
-    FelicityTokenExpiredError,
-    PlantDetails,
-    Snapshot,
-)
-
 from .const import (
     CONF_DEVICE_SERIALS,
     CONF_ENABLE_ALERTS,
@@ -50,6 +38,17 @@ from .const import (
     DEFAULT_POLL_INTERVAL,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
+)
+from .vendor.felicity_client import (
+    Alert,
+    Device,
+    EnergyFlow,
+    FelicityAuthError,
+    FelicityClient,
+    FelicityError,
+    FelicityTokenExpiredError,
+    PlantDetails,
+    Snapshot,
 )
 
 _LOGGER = logging.getLogger(__name__)
