@@ -121,6 +121,19 @@ datos en vivo, planta "Antares" (IVEM8048-II + FLA48100-EU).
 
 ## Pendiente
 
+### Hecho en la segunda iteración (2026-10-21)
+
+- [x] **Segunda planta añadida** (Antupirén) con su propia entrada: el
+      `unique_id` es `email:plant_id`, así que una cuenta expone varias plantas
+- [x] **Sensores agregados** de todas las plantas
+      (`sensor.felicity_solar_total_*_all_plants`): el Energy Dashboard de HA
+      es único para toda la instancia
+- [x] **Backfill del recorder** (`scripts/backfill_statistics.py`): el API
+      publica la producción del día y el total de por vida, y su diferencia es
+      exactamente lo producido desde medianoche → el panel muestra la cifra
+      real desde el primer día en vez de 0 kWh
+- [x] Panel de Energía configurado con el agregado, validado sin errores
+
 ### Prioridad alta
 
 - [ ] Tarjeta de Lovelace propia (flujo de energía + SOC) o un dashboard YAML

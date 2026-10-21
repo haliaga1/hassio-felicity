@@ -36,6 +36,26 @@ TARGETS: dict[str, str] = {
     "sensor.antupiren_plant_pv_energy_total": "sensor.antupiren_plant_pv_energy_today",
     "sensor.antares_plant_grid_import_total": "sensor.antares_plant_grid_import_today",
     "sensor.antares_plant_grid_export_total": "sensor.antares_plant_grid_export_today",
+    # El agregado de todas las plantas: la suma de las diarias.
+    "sensor.felicity_solar_total_pv_energy_all_plants": None,  # type: ignore[dict-item]
+    "sensor.felicity_solar_total_grid_import_all_plants": None,  # type: ignore[dict-item]
+    "sensor.felicity_solar_total_grid_export_all_plants": None,  # type: ignore[dict-item]
+}
+
+#: El agregado se obtiene sumando las plantas, no de un sensor diario.
+AGGREGATE_SOURCES: dict[str, list[str]] = {
+    "sensor.felicity_solar_total_pv_energy_all_plants": [
+        "sensor.antares_plant_pv_energy_today",
+        "sensor.antupiren_plant_pv_energy_today",
+    ],
+    "sensor.felicity_solar_total_grid_import_all_plants": [
+        "sensor.antares_plant_grid_import_today",
+        "sensor.antupiren_plant_grid_import_today",
+    ],
+    "sensor.felicity_solar_total_grid_export_all_plants": [
+        "sensor.antares_plant_grid_export_today",
+        "sensor.antupiren_plant_grid_export_today",
+    ],
 }
 
 UNIT_OF_MEASUREMENT = "kWh"
@@ -98,15 +118,30 @@ async def main() -> int:
             if entity_id not in states:
                 print(f"  ! {entity_id} no existe, se omite")
                 continue
-            daily_state = states.get(daily_entity)
-            if daily_state is None:
-                print(f"  ! {daily_entity} no existe, se omite")
-                continue
-            try:
-                value = float(daily_state["state"])
-            except (TypeError, ValueError):
-                print(f"  ! {daily_entity} no es un numero, se omite")
-                continue
+
+            if daily_entity is None:
+                # El agregado: la suma de las plantas.
+                sources = AGGREGATE_SOURCES.get(entity_id, [])
+                total = 0.0
+                for source in sources:
+                    source_state = states.get(source)
+                    if source_state is None:
+                        continue
+                    try:
+                        total += float(source_state["state"])
+                    except (TypeError, ValueError):
+                        continue
+                value = total
+            else:
+                daily_state = states.get(daily_entity)
+                if daily_state is None:
+                    print(f"  ! {daily_entity} no existe, se omite")
+                    continue
+                try:
+                    value = float(daily_state["state"])
+                except (TypeError, ValueError):
+                    print(f"  ! {daily_entity} no es un numero, se omite")
+                    continue
             if value <= 0:
                 print(f"  - {entity_id}: nada que rellenar ({value} kWh)")
                 continue
