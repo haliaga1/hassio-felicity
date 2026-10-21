@@ -1,0 +1,19 @@
+{
+  "code": 200,
+  "data": {
+    "dataList": [
+      {
+        "id": "warn-9001",
+        "deviceSn": "BAT0001",
+        "warnTitle": "LowCellVoltage",
+        "warnContent": "The lowest cell voltage is below the threshold",
+        "warnLevel": "2",
+        "status": "0",
+        "warnCode": "BMS-018",
+        "createTime": "2026-01-01 09:12:44"
+      }
+    ],
+    "total": 1
+  },
+  "message": "success"
+}

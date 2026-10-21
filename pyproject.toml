@@ -1,0 +1,89 @@
+[project]
+name = "felicity-metrics"
+version = "0.1.0"
+description = "Client and Home Assistant integration for Felicity Solar (FSolar/Shine) inverters and batteries"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "hugoaliaga" }]
+
+[tool.uv.workspace]
+members = ["packages/felicity-client"]
+
+[tool.uv.sources]
+felicity-client = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=5.0",
+    "respx>=0.22",
+    "hypothesis>=6.112",
+    "ruff>=0.8",
+    "mypy>=1.13",
+    "types-cryptography",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["packages/felicity-client/src"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "C4",  # comprehensions
+    "SIM", # simplify
+    "TID", # tidy imports
+    "RUF",
+    "S",   # flake8-bandit
+    "BLE", # flake8-blind-except
+]
+ignore = [
+    "E501",  # line length handled by the formatter
+    "SIM108", # ternary is not always clearer
+    "TID252", # relative parent imports are used on purpose inside the package
+]
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**" = ["S101", "S105", "S106"]
+"**/scripts/**" = ["S105", "S106"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["felicity_client"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unreachable = true
+mypy_path = "packages/felicity-client/src"
+packages = ["felicity_client"]
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+disallow_untyped_defs = false
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["packages/felicity-client/tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "-ra --strict-markers --strict-config"
+markers = [
+    "integration: tests that hit the real FSolar API (require credentials in env)",
+]
+filterwarnings = ["error"]
+
+[tool.coverage.run]
+source = ["packages/felicity-client/src/felicity_client"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
