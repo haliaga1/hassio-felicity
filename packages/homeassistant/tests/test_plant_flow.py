@@ -88,7 +88,7 @@ async def test_the_aggregate_sums_the_inverters(
     assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
     await hass.async_block_till_done()
 
-    aggregate = hass.states.get(entity_id(hass, "felicity_solar_total_pv_power_all_plants"))
+    aggregate = hass.states.get(entity_id(hass, "felicity_solar_total_pv_power"))
     plant = hass.states.get(entity_id(hass, f"{plant_id()}_plant_pv_power"))
     assert aggregate is not None
     assert plant is not None
