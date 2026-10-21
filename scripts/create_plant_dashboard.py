@@ -43,14 +43,28 @@ def _entities_of(prefix: str, known: set[str], suffix: str) -> list[str]:
     return [candidate] if candidate in known else []
 
 
+def _flow_entities(prefix: str, known: set[str]) -> list[str]:
+    """Return the flow state sensors of a plant.
+
+    They are looked up by their unique identifier, which is stable, because
+    the entity id depends on the translated name of the card.
+    """
+    wanted = (f"{prefix}_grid_flow", f"{prefix}_pv_flow", f"{prefix}_battery_flow")
+    found: list[str] = []
+    for entity_id in sorted(known):
+        if entity_id.startswith("sensor.") and entity_id.endswith(wanted):
+            found.append(entity_id)
+    return found
+
+
 def _plant_cards(prefix: str, known: set[str]) -> list[dict[str, Any]]:
     """Build the cards of a plant's page, mirroring the official app."""
     cards: list[dict[str, Any]] = []
 
     # El estado de cada flujo: de donde viene la energia y donde va.
-    flows = _entities_of(prefix, known, "plant_grid_flow")
-    flows += _entities_of(prefix, known, "plant_pv_flow")
-    flows += _entities_of(prefix, known, "plant_battery_flow")
+    # Se buscan por identificador unico, porque el entity_id depende del
+    # nombre traducido de la tarjeta.
+    flows = _flow_entities(prefix, known)
     if flows:
         cards.append(
             {

@@ -505,7 +505,9 @@ FLOW_DESCRIPTIONS: tuple[FelicityFlowEntityDescription, ...] = (
         translation_key="plant_grid_flow",
         device_class=SensorDeviceClass.ENUM,
         options=tuple(GRID_STATES),
-        power_attribute="grid_power",
+        # La entrada en CA: es lo que el inversor toma de la red, y la
+        # misma serie que publica el historico del API.
+        power_attribute="grid_ac_input_power",
     ),
     FelicityFlowEntityDescription(
         key="plant_pv_flow",

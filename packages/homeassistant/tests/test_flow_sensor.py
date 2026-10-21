@@ -15,9 +15,7 @@ from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.felicity_solar.const import DOMAIN
-
-from .conftest import API_URL, entity_id, load_fixture, plant_id, register_api
+from .conftest import API_URL, entity_id, plant_id, register_api
 
 
 def _flow_payload(grid: float, pv: float, battery: float) -> dict:
@@ -74,9 +72,7 @@ async def test_the_flow_states_follow_the_sign(
     """A positive power means charging or importing, a negative one the opposite."""
     register_api()
     respx.get(f"{API_URL}/device/get_energy_flow2").mock(
-        return_value=httpx.Response(
-            200, json=_flow_payload(grid=500.0, pv=1000.0, battery=250.0)
-        )
+        return_value=httpx.Response(200, json=_flow_payload(grid=500.0, pv=1000.0, battery=250.0))
     )
     mock_config_entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
@@ -99,9 +95,7 @@ async def test_the_flow_states_invert_with_the_sign(
     """Exporting and discharging are the opposite states."""
     register_api()
     respx.get(f"{API_URL}/device/get_energy_flow2").mock(
-        return_value=httpx.Response(
-            200, json=_flow_payload(grid=-500.0, pv=0.0, battery=-250.0)
-        )
+        return_value=httpx.Response(200, json=_flow_payload(grid=-500.0, pv=0.0, battery=-250.0))
     )
     mock_config_entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
@@ -124,9 +118,7 @@ async def test_a_flow_at_rest_is_idle(
     """A battery at 100 % with no power is "at rest", not charging."""
     register_api()
     respx.get(f"{API_URL}/device/get_energy_flow2").mock(
-        return_value=httpx.Response(
-            200, json=_flow_payload(grid=0.0, pv=0.0, battery=0.0)
-        )
+        return_value=httpx.Response(200, json=_flow_payload(grid=0.0, pv=0.0, battery=0.0))
     )
     mock_config_entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
