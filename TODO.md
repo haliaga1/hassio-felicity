@@ -69,11 +69,53 @@ datos en vivo, planta "Antares" (IVEM8048-II + FLA48100-EU).
 
 ## En curso
 
-- [ ] **Selección de planta**: el `unique_id` es `email` → hoy no se puede
-      añadir una **segunda planta de la misma cuenta**. Debe pasar a
-      `email:plant_id`.
-- [ ] **Añadir una cuenta** desde la pantalla de la integración, sin pasar
-      por "Añadir integración".
+- [ ] Confirmar el signo del flujo **descargando** → poner
+      `sign_verified: true` en los sensores de flujo.
+
+---
+
+## Hecho en esta iteración (2026-10-21)
+
+### Selección de planta y cuentas
+
+- [x] `unique_id = email:plant_id` → una cuenta puede exponer **varias
+      plantas** y una planta puede alcanzarse desde varias cuentas
+- [x] Selector de planta en el config flow (ya existía) con las **dos
+      plantas reales** listadas: Antares y Antupirén
+- [x] Acción **"Agregar otra cuenta o planta"** en el options flow:
+      arranca un segundo config flow sin pasar por "Añadir integración"
+- [x] `async_step_reconfigure` → mover una entrada a otra planta con el
+      botón **Reconfigure** estándar de HA
+
+### Panel de Energía
+
+- [x] Configurado por API con `energy/save_prefs`:
+      - **Solar** → `sensor.antares_plant_pv_energy_total` (`total_increasing`)
+        + `sensor.antares_plant_pv_power` como tasa
+      - **Batería** → `sensor.antares_plant_battery_charging_total` /
+        `..._discharging_total`
+      - **Red** → se conserva la del usuario (`sensor.consumo_electrico_total`)
+        y se añade la exportación de la planta
+- [x] `energy/validate` → **sin errores** en las tres fuentes
+- [x] Contadores de **por vida** para red y batería, acumulados a partir
+      de los diarios del API y **persistidos** (sobreviven a un reinicio)
+
+### Calidad
+
+- [x] Nombres de dispositivo legibles (el modelo en vez del número de serie)
+- [x] SOHReported como `unknown` cuando el equipo no lo mide (0 % es imposible)
+- [x] Traducciones de los contadores de por vida (sin ellas los ids salían
+      como `sensor.antares_energy`)
+- [x] Fixtures redactados también de PII (`realName`, `custodian`, `ownerName`)
+- [x] README con las instrucciones de instalación por API
+
+### Repositorio y herramientas
+
+- [x] `TODO.md` con el estado de avance
+- [x] Proyecto indexado con **codebase-memory-mcp**: 5006 nodos, 9068
+      aristas, 17 rutas del API detectadas
+- [x] Artefacto del grafo commiteado (`.codebase-memory/graph.db.zst`)
+- [x] `scripts/hacs_client.py` → instalar y actualizar por API
 
 ---
 
@@ -81,28 +123,15 @@ datos en vivo, planta "Antares" (IVEM8048-II + FLA48100-EU).
 
 ### Prioridad alta
 
-- [ ] **Configurar el panel de Energía** de Home Assistant con
-      `sensor.antares_plant_pv_energy_total` como fuente solar, para que el
-      gráfico reconozca el inversor automáticamente.
-- [ ] `unique_id = email:plant_id` → permitir varias plantas por cuenta.
-- [ ] Botón/acción "Agregar otra cuenta o planta" en la página de la
-      integración.
-- [ ] `async_step_reconfigure` para cambiar de planta sin borrar la entrada.
-- [ ] Confirmar el signo del flujo **descargando** → poner
-      `sign_verified: true` en los sensores de flujo.
-
-### Prioridad media
-
 - [ ] Tarjeta de Lovelace propia (flujo de energía + SOC) o un dashboard YAML
-- [ ] Snippet de `utility_meter` en el README para batería y red
-- [ ] `sensor` de la carga de la batería con signo normalizado
+- [ ] `utility_meter` equivalente para cuando la nube no dé contadores
 - [ ] Publicar `felicity-client` en PyPI
 - [ ] Release de GitHub con tag semántico (HACS lo usa para versionar)
 
-### Prioridad baja
+### Prioridad media
 
-- [ ] Soporte del nodo `EU` verificado contra el backend
 - [ ] Historial: `/storageRealtimeData/chart_storageRealtimeData_mate`
+- [ ] Soporte del nodo `EU` verificado contra el backend
 - [ ] Servicios de escritura (`/deviceCommand/*`) — v2
 - [ ] `number.py` para SOC mínimo/máximo — v2
 - [ ] Soporte de la plataforma EMS comercial (`/ems/*`)

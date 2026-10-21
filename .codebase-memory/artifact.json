@@ -1,0 +1,11 @@
+{
+    "schema_version": 2,
+    "commit": "5ef01260f9b8ae35019036ec423198a47dded75b",
+    "indexed_at": "2026-10-21T15:34:49Z",
+    "project": "felicity-metrics",
+    "nodes": 5006,
+    "edges": 9068,
+    "original_size": 6029312,
+    "compressed_size": 942397,
+    "compression_level": 9
+}
