@@ -75,6 +75,27 @@ class FelicityData:
         return self.devices.get(serial_number)
 
 
+def select_primary_flow(data: FelicityData) -> EnergyFlow | None:
+    """Return the energy flow of the **inverter** of a plant.
+
+    The plant reports a flow per device and the order in which the devices
+    are returned is not guaranteed: on one plant the inverter comes first,
+    on another one the battery does. The plant level sensors describe the
+    production and the consumption of the whole plant, so they have to read
+    the inverter's flow, not the first one that happens to be in the list.
+    """
+    inverter: EnergyFlow | None = None
+    fallback: EnergyFlow | None = None
+    for serial_number, flow in data.flows.items():
+        device = data.devices.get(serial_number)
+        if device is not None and device.product_type is ProductType.INVERTER:
+            inverter = flow
+            break
+        if fallback is None and flow.pv_power is not None:
+            fallback = flow
+    return inverter or fallback
+
+
 FelicityConfigEntry = ConfigEntry
 
 
@@ -234,29 +255,11 @@ class FelicityCoordinator(DataUpdateCoordinator[FelicityData]):
 
     @property
     def primary_flow(self) -> EnergyFlow | None:
-        """The energy flow of the **inverter** of the plant.
-
-        The plant reports a flow per device, and the order in which the
-        devices are returned is not guaranteed: on one plant the inverter
-        comes first, on another one the battery does. The plant level
-        sensors describe the production and the consumption of the whole
-        plant, so they have to read the inverter's flow, not the first one
-        that happens to be in the list.
-        """
+        """The energy flow of the **inverter** of the plant."""
         data = self.data
         if data is None:
             return None
-
-        inverter: EnergyFlow | None = None
-        fallback: EnergyFlow | None = None
-        for serial_number, flow in data.flows.items():
-            device = data.devices.get(serial_number)
-            if device is not None and device.product_type is ProductType.INVERTER:
-                inverter = flow
-                break
-            if fallback is None and flow.pv_power is not None:
-                fallback = flow
-        return inverter or fallback
+        return select_primary_flow(data)
 
     def _update_counters(self, details: PlantDetails | None) -> LifetimeCounters | None:
         """Accumulate the lifetime counters and persist them.

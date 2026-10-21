@@ -75,3 +75,23 @@ async def test_the_flow_is_the_same_with_the_devices_reversed(
     assert state.state not in {"unknown", "unavailable"}
     assert float(state.state) > 0
     assert inverter_sn() != battery_sn()
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+@respx.mock
+async def test_the_aggregate_sums_the_inverters(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """The aggregate adds the PV power of every plant's inverter."""
+    register_api()
+    mock_config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    aggregate = hass.states.get(entity_id(hass, "felicity_solar_total_pv_power_all_plants"))
+    plant = hass.states.get(entity_id(hass, f"{plant_id()}_plant_pv_power"))
+    assert aggregate is not None
+    assert plant is not None
+    # The aggregate must not take the battery's flow instead of the
+    # inverter's, which would halve the production.
+    assert float(aggregate.state) == pytest.approx(float(plant.state))

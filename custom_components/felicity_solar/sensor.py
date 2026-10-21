@@ -23,7 +23,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN
-from .coordinator import FelicityCoordinator, FelicityData
+from .coordinator import FelicityCoordinator, FelicityData, select_primary_flow
 from .descriptions import SENSOR_DESCRIPTIONS, FelicitySensorEntityDescription
 from .entity import FelicityEntity, slugify
 from .plant_energy import (
@@ -370,9 +370,8 @@ def _plant_value(data: FelicityData, attribute: str) -> float | None:
     if attribute == "pv_energy_total":
         return details.accumulated_pv_kwh
     if attribute == "pv_power":
-        for flow in data.flows.values():
-            return flow.pv_power
-        return None
+        flow = select_primary_flow(data)
+        return flow.pv_power if flow is not None else None
     counters = data.counters
     if counters is None:
         return None
