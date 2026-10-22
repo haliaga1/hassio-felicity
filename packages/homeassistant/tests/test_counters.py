@@ -3,6 +3,9 @@
 The FSolar API publishes daily counters for the grid and the battery, but
 the Home Assistant Energy Dashboard needs lifetime ones. The counters are
 accumulated from the day-to-day delta of the daily values.
+
+The battery is the exception: the vendor publishes its daily counter empty,
+so its energy is integrated from the power of the flow.
 """
 
 from __future__ import annotations
@@ -11,6 +14,9 @@ from datetime import date
 
 import pytest
 from custom_components.felicity_solar.counters import LifetimeCounters
+from custom_components.felicity_solar.vendor.felicity_client.models.energy import (
+    EnergyFlow,
+)
 from custom_components.felicity_solar.vendor.felicity_client.models.plant_details import (
     PlantDetails,
 )
@@ -28,6 +34,11 @@ def _details(**kwargs: float) -> PlantDetails:
     for key, value in kwargs.items():
         payload[key] = str(value)
     return PlantDetails.from_payload(payload)
+
+
+def _flow(battery_power: float | None) -> EnergyFlow:
+    """Build an energy flow with the given battery power."""
+    return EnergyFlow(device_sn="sn-1", plant_id="plant-1", battery_power=battery_power)
 
 
 class TestLifetimeCounters:
@@ -93,3 +104,40 @@ class TestLifetimeCounters:
         counters = LifetimeCounters()
         counters.update(_details(todayGridInput=1.0))
         assert counters._day == date.today().isoformat()
+
+
+class TestBatteryFromTheFlow:
+    """The daily counter of the battery comes empty from the API."""
+
+    def test_the_energy_is_integrated_from_the_power(self) -> None:
+        counters = LifetimeCounters()
+        counters.update_flow(_flow(1000.0), 0.5)
+        assert counters.battery_charging_kwh == pytest.approx(0.5)
+        assert counters.battery_discharging_kwh == pytest.approx(0.0)
+
+    def test_a_discharging_battery_is_counted_as_discharged(self) -> None:
+        counters = LifetimeCounters()
+        counters.update_flow(_flow(-1000.0), 0.5)
+        assert counters.battery_discharging_kwh == pytest.approx(0.5)
+        assert counters.battery_charging_kwh == pytest.approx(0.0)
+
+    def test_without_elapsed_time_nothing_is_counted(self) -> None:
+        counters = LifetimeCounters()
+        counters.update_flow(_flow(1000.0), 0.0)
+        assert counters.battery_charging_kwh == pytest.approx(0.0)
+
+    def test_without_a_flow_nothing_is_counted(self) -> None:
+        counters = LifetimeCounters()
+        counters.update_flow(None, 1.0)
+        assert counters.battery_charging_kwh == pytest.approx(0.0)
+
+    def test_without_a_power_nothing_is_counted(self) -> None:
+        counters = LifetimeCounters()
+        counters.update_flow(_flow(None), 1.0)
+        assert counters.battery_charging_kwh == pytest.approx(0.0)
+
+    def test_the_energy_accumulates_over_the_updates(self) -> None:
+        counters = LifetimeCounters()
+        counters.update_flow(_flow(1000.0), 0.5)
+        counters.update_flow(_flow(2000.0), 0.5)
+        assert counters.battery_charging_kwh == pytest.approx(1.5)

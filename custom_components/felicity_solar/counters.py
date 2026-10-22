@@ -13,6 +13,10 @@ The accumulation is exact rather than a Riemann sum of the power: it uses
 the vendor's own kWh counters. Its only weakness is the obvious one — a day
 the integration was not running is lost, because the daily counter rolled
 over while nobody was reading it.
+
+The battery is the exception: the vendor publishes its daily counter empty
+(``todayBatteryCharging`` is always ``0``), so its energy is integrated from
+the power of the flow instead.
 """
 
 from __future__ import annotations
@@ -23,11 +27,17 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
 
+from .vendor.felicity_client.models.energy import EnergyFlow
 from .vendor.felicity_client.models.plant_details import PlantDetails
 
 _LOGGER = logging.getLogger(__name__)
 
 __all__ = ["LifetimeCounters"]
+
+#: The longest stretch of time the integration integrates in one go. A
+#: longer gap means the instance was not running, and the energy of that
+#: time is lost rather than guessed.
+MAX_INTEGRATION_HOURS = 0.25
 
 
 @dataclass
@@ -77,6 +87,24 @@ class LifetimeCounters:
                     delta = 0.0
             setattr(self, _ATTRIBUTES[key], getattr(self, _ATTRIBUTES[key]) + delta)
             self._last_daily[key] = value
+
+    def update_flow(self, flow: EnergyFlow | None, hours: float) -> None:
+        """Accumulate the energy the battery has charged or discharged.
+
+        The daily counter the API publishes for the battery comes empty, so
+        its energy is integrated from the power of the flow: a positive
+        battery power means the battery is charging, a negative one means it
+        is discharging.
+        """
+        if flow is None or hours <= 0:
+            return
+        power = flow.battery_power
+        if power is None:
+            return
+        if power >= 0:
+            self.battery_charging_kwh += power * hours / 1000
+        else:
+            self.battery_discharging_kwh += -power * hours / 1000
 
     def to_dict(self) -> dict[str, Any]:
         """Serialise the counters for storage."""

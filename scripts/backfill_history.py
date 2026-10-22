@@ -1,8 +1,27 @@
 #!/usr/bin/env python3
-"""Backfill the recorder with the real history of the plants, and the
-opening balances of the counters that predate the integration.
+"""Backfill the recorder with the real history of the plants.
 
-Two sources are used, and both are exact:
+How the recorder stores an energy counter
+-----------------------------------------
+
+For a ``total_increasing`` sensor the recorder keeps, in the ``sum`` column,
+the **value of the counter at the end of the hour**, and the consumption of a
+period is the *difference* between the newest and the oldest of those values
+(``recorder/statistic_during_period`` computes exactly that ``change``).
+
+Two consequences drive this script:
+
+* the imported history has to be the **cumulative value** of the counter, not
+  the production of the hour. Importing deltas would make the recorder
+  carry the last delta over the hours without samples, and every total would
+  drift;
+* the values have to live in the **same scale** the recorder uses. The
+  recorder accumulates the sum from the *first value it ever saw* of the
+  sensor, so its sums are ``value - zero point``. The zero point is read
+  from the recorder and every imported value is rebased with it.
+
+The sources
+-----------
 
 1. **The historical records** (``/storageRealtimeData/list_storageRealtimeData_new``)
    are a paginated list of snapshots, one every 5 minutes, each holding the
@@ -11,24 +30,16 @@ Two sources are used, and both are exact:
    of an hour is therefore the difference between two snapshots, with no
    integration error at all.
 
-2. **The opening balances.** The API publishes the month's and the year's
+2. **The opening values.** The API publishes the month's and the year's
    totals (``monthPv``, ``yearPv``) but not their daily breakdown. Those
-   totals are turned into a single *opening* statistic at the first hour of
-   the period, so the Energy Dashboard shows the real figure for "this
-   month" and "this year" instead of only the days the integration has been
-   running.
+   totals are turned into the value the counter had when the period started,
+   written in the hour *before* it, so the difference with the newest value
+   is exactly the figure the API publishes::
 
-The openings are nested and computed as residuals, from the longest period
-to the shortest, so every window of the dashboard stays consistent::
+       this month = (value now) - (value at the start of the month)
+                  = monthPv
 
-    year  opening = yearPv  - detail - month opening
-    month opening = monthPv - detail
-    detail         = the exact hourly production
-
-    today    = detail of today                       (exact)
-    7 days   = detail of the last 7 days             (exact)
-    this month = month opening + detail of the month  (= monthPv)
-    this year  = year opening + month opening + detail (= yearPv)
+   Today and the last seven days come from the detail alone, and are exact.
 
 Usage::
 
@@ -44,9 +55,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
-import sys
 import unicodedata
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
 
 import aiohttp
@@ -56,10 +66,6 @@ SAMPLE_MINUTES = 5
 
 #: Samples of a full day (24 h / 5 min).
 SAMPLES_PER_DAY = 24 * 60 // SAMPLE_MINUTES
-
-#: The statistic of the Energy Dashboard that consumes the production.
-PLANT_STATISTIC = "plant_pv_energy_total"
-AGGREGATE_STATISTIC = "felicity_solar_total_pv_energy_all_plants"
 
 #: The series of the FSolar history -> the statistic it feeds.
 #:
@@ -74,10 +80,11 @@ SERIES: tuple[tuple[str, str, str, int], ...] = (
     ("feedOutput", "plant_grid_export_total", "grid", 1),
 )
 
-#: The aggregate statistics, per series.
+#: The aggregate statistics: the suffix of the plant statistic they add up
+#: and the aggregate they feed.
 AGGREGATE_SERIES: tuple[tuple[str, str], ...] = (
-    ("pv", "felicity_solar_total_pv_energy_all_plants"),
-    ("grid", "felicity_solar_total_grid_import_all_plants"),
+    ("_plant_pv_energy_total", "felicity_solar_total_pv_energy_all_plants"),
+    ("_plant_grid_import_total", "felicity_solar_total_grid_import_all_plants"),
 )
 
 API_URL = "https://shine-api.felicitysolar.com"
@@ -151,15 +158,15 @@ async def _fetch_series(
     return series
 
 
-def _hourly_from_records(
-    records: list[dict[str, Any]], field: str, tz: timezone, resets_daily: bool = False
-) -> tuple[dict[datetime, float], dict[datetime, float]]:
-    """Return the hourly production and the hourly value of a counter.
+def _hourly_values(
+    records: list[dict[str, Any]], field: str, tz: timezone
+) -> tuple[dict[datetime, float], float]:
+    """Return the value of a counter at the end of every hour, and its first value.
 
-    The production is computed **between consecutive records**, so no energy
-    is lost in the gap between two hours. A counter that goes down has been
-    reset (the daily ones reset at midnight), and then the whole current
-    value is the production of that interval.
+    The recorder stores, for a ``total_increasing`` sensor, the value of the
+    counter at the end of the hour in the ``sum`` column: the consumption of
+    a period is the difference between the newest and the oldest of those
+    values.
     """
     points: list[tuple[datetime, float]] = []
     for record in records:
@@ -175,28 +182,92 @@ def _hourly_from_records(
         points.append((moment, value))
     points.sort()
 
-    sums: dict[datetime, float] = {}
-    states: dict[datetime, float] = {}
-    previous: tuple[datetime, float] | None = None
+    values: dict[datetime, float] = {}
     for moment, value in points:
-        hour = moment.replace(minute=0, second=0, microsecond=0)
-        if previous is not None:
-            delta = value - previous[1]
-            if delta < 0:
-                if not resets_daily:
-                    # Un contador de por vida que baja significa que se
-                    # cambio el equipo: la produccion de ese intervalo se
-                    # desconoce, asi que no se cuenta nada.
-                    previous = (moment, value)
-                    states[hour] = value
-                    continue
-                # El contador diario se reinicio a medianoche: todo el
-                # valor actual es la produccion desde el ultimo reinicio.
-                delta = value
-            sums[hour] = sums.get(hour, 0.0) + max(0.0, delta)
-        states[hour] = value
-        previous = (moment, value)
-    return sums, states
+        values[moment.replace(minute=0, second=0, microsecond=0)] = value
+    if not values:
+        return {}, 0.0
+    return values, points[0][1]
+
+
+def _productions(values: dict[datetime, float], first_value: float) -> dict[datetime, float]:
+    """Return the energy produced in each hour."""
+    hours = sorted(values)
+    previous = first_value
+    result: dict[datetime, float] = {}
+    for hour in hours:
+        result[hour] = max(0.0, values[hour] - previous)
+        previous = values[hour]
+    return result
+
+
+def _openings(
+    values: dict[datetime, float],
+    first_value: float,
+    productions: dict[datetime, float],
+    month_total: float | None,
+    year_total: float | None,
+    tz: timezone,
+) -> dict[datetime, float]:
+    """Return the value the counter had when the month and the year started.
+
+    The opening is written in the hour **before** the period starts, so the
+    recorder finds it as the oldest sum of the period, and the difference
+    with the newest one is exactly the production of the period::
+
+        this month = (value now) - (value at the start of the month)
+                   = monthPv
+
+    The value at the start of the period is the value of the counter at the
+    beginning of the detail, minus what was produced before the detail
+    inside the period.
+    """
+    openings: dict[datetime, float] = {}
+    if not values:
+        return openings
+
+    hours = sorted(values)
+    local = hours[0].astimezone(tz)
+    month_start = local.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    year_start = local.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    detail_total = max(0.0, values[hours[-1]] - first_value)
+    detail_month = sum(
+        production for hour, production in productions.items() if hour >= month_start
+    )
+
+    if month_total is not None:
+        value = first_value - (month_total - detail_month)
+        # La hora anterior al periodo: es la fila mas antigua del periodo
+        # para el recorder. Y la primera hora del periodo, que el recorder
+        # usaria como valor inicial si faltara la anterior.
+        openings[month_start - timedelta(hours=1)] = value
+        openings[month_start] = value
+    if year_total is not None:
+        value = first_value - (year_total - detail_total)
+        openings[year_start - timedelta(hours=1)] = value
+        openings[year_start] = value
+    return openings
+
+
+def _counter_values(productions: dict[datetime, float], live_value: float) -> dict[datetime, float]:
+    """Return the trajectory of a counter the integration accumulates itself.
+
+    The integration turns the daily counters of the API into lifetime ones,
+    so its counter only knows what happened since it started running. The
+    series is anchored to the current value of the sensor, so the imported
+    history ends exactly where the live data begins.
+    """
+    hours = sorted(productions)
+    accumulated = 0.0
+    values: dict[datetime, float] = {}
+    for hour in hours:
+        accumulated += productions[hour]
+        values[hour] = accumulated
+    if not values:
+        return values
+    offset = live_value - accumulated
+    return {hour: max(0.0, value + offset) for hour, value in values.items()}
 
 
 def _day_starts(samples: list[float], now: datetime, tz: timezone) -> list[tuple[datetime, int]]:
@@ -231,49 +302,56 @@ def _hourly_production(
     return result
 
 
-def _openings(
-    sums: dict[datetime, float],
-    states: dict[datetime, float],
-    month_total: float | None,
-    year_total: float | None,
-    tz: timezone,
-) -> tuple[dict[datetime, float], dict[datetime, float]]:
-    """Compute the opening balances of the month and the year.
+async def _states(session: aiohttp.ClientSession, url: str) -> dict[str, Any]:
+    """Return the states of the instance, keyed by entity id."""
+    async with session.get(f"{url}/api/states") as response:
+        return {state["entity_id"]: state for state in await response.json()}
 
-    They are nested residuals, from the longest period to the shortest, so
-    every window of the Energy Dashboard stays consistent.
+
+async def _websocket(session: aiohttp.ClientSession, token: str, command: dict) -> Any:
+    """Run one command in the websocket API of Home Assistant."""
+    ws_url = os.environ["HA_URL"].replace("http://", "ws://").replace("https://", "wss://")
+    async with session.ws_connect(f"{ws_url}/api/websocket") as ws:
+        await ws.receive_json()
+        await ws.send_json({"type": "auth", "access_token": token})
+        await ws.receive_json()
+        await ws.send_json({"id": 1, **command})
+        response = await ws.receive_json()
+    if not response.get("success"):
+        raise RuntimeError(response.get("error") or "the command failed")
+    return response.get("result")
+
+
+async def _recorder_base(
+    session: aiohttp.ClientSession, token: str, statistic_id: str
+) -> float | None:
+    """Return the zero point the recorder uses for a sensor.
+
+    The recorder accumulates the sum of a ``total_increasing`` sensor from the
+    first value it ever saw, so the sums it stores are the value of the
+    counter minus that zero point. The imported history has to use the same
+    zero point, or the difference between the oldest and the newest sum
+    would not be the production of the period.
     """
-    openings_sum: dict[datetime, float] = {}
-    openings_state: dict[datetime, float] = {}
-    if not sums:
-        return openings_sum, openings_state, None, 0.0, 0.0
-
-    hours = sorted(sums)
-    first_hour = hours[0]
-    first_value = states.get(first_hour, 0.0)
-
-    local = first_hour.astimezone(tz)
-    month_start = local.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    year_start = local.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
-
-    detail_month = sum(v for k, v in sums.items() if k >= month_start)
-    detail_year = sum(sums.values())
-
-    month_opening = None
-    if month_total is not None:
-        month_opening = month_total - detail_month
-    year_opening = None
-    if year_total is not None:
-        year_opening = year_total - detail_year - (month_opening or 0.0)
-
-    if month_opening is not None:
-        openings_sum[month_start] = month_opening
-        # El valor del contador al inicio del mes.
-        openings_state[month_start] = first_value - detail_month
-    if year_opening is not None:
-        openings_sum[year_start] = year_opening
-        openings_state[year_start] = first_value - detail_year - (month_opening or 0.0)
-    return openings_sum, openings_state, month_start, detail_month, detail_year
+    now = datetime.now(UTC)
+    for period, start in (("5minute", now - timedelta(hours=6)), ("hour", now - timedelta(days=3))):
+        result = await _websocket(
+            session,
+            token,
+            {
+                "type": "recorder/statistics_during_period",
+                "statistic_ids": [statistic_id],
+                "start_time": start.isoformat(),
+                "end_time": now.isoformat(),
+                "period": period,
+            },
+        )
+        rows = result.get(statistic_id) or []
+        for row in reversed(rows):
+            if row.get("sum") is None or row.get("state") is None:
+                continue
+            return float(row["state"]) - float(row["sum"])
+    return None
 
 
 async def _import_statistics(
@@ -286,8 +364,6 @@ async def _import_statistics(
     """Import the hourly statistics of one sensor."""
     stats: list[dict[str, Any]] = []
     for start, value in sorted(sums.items()):
-        if value <= 0:
-            continue
         entry: dict[str, Any] = {"start": start.isoformat(), "sum": round(value, 4)}
         if states and start in states:
             entry["state"] = round(states[start], 4)
@@ -304,24 +380,15 @@ async def _import_statistics(
         "unit_class": "energy",
         "unit_of_measurement": "kWh",
     }
-    ws_url = os.environ["HA_URL"].replace("http://", "ws://").replace("https://", "wss://")
-    ws_url = f"{ws_url}/api/websocket"
-    async with session.ws_connect(ws_url) as ws:
-        await ws.receive_json()
-        await ws.send_json({"type": "auth", "access_token": token})
-        await ws.receive_json()
-        await ws.send_json(
-            {
-                "id": 1,
-                "type": "recorder/import_statistics",
-                "metadata": metadata,
-                "stats": stats,
-            }
-        )
-        response = await ws.receive_json()
-    if not response.get("success"):
-        print(f"    ERROR importando {statistic_id}: {response.get('error')}")
-        return 0
+    await _websocket(
+        session,
+        token,
+        {
+            "type": "recorder/import_statistics",
+            "metadata": metadata,
+            "stats": stats,
+        },
+    )
     return len(stats)
 
 
@@ -384,13 +451,18 @@ async def main() -> int:
             ha_config = await response.json()
         tz = timezone(timedelta(hours=_tz_offset(ha_config.get("time_zone", "UTC"))))
         now = datetime.now(tz)
+        states = await _states(session, ha_url)
 
         from felicity_client import FelicityClient
 
         async with FelicityClient(email, password) as client:
             plants = await client.list_plants()
 
-        aggregate: dict[str, dict[datetime, float]] = {key: {} for key, _ in AGGREGATE_SERIES}
+        #: statistic id -> (the value of the counter at the end of the hour)
+        absolute: dict[str, dict[datetime, float]] = {}
+        #: statistic id -> (the value the counter had at the start of a period)
+        openings: dict[str, dict[datetime, float]] = {}
+
         for plant in plants:
             async with aiohttp.ClientSession() as fs:
                 records = await _fetch_records(fs, fsolar_headers, plant.id)
@@ -409,58 +481,38 @@ async def main() -> int:
             load_month_total = None
             load_year_total = await _load_year_total(client, plant.id)
 
-            # --- Produccion: la de los registros historicos (exacta) --------
-            # La produccion del PV sale del contador diario (ePvToday) y el
-            # nivel del contador de por vida (totalEnergy).
-            pv_sums, _ = _hourly_from_records(records, "ePvToday", tz, resets_daily=True)
-            _, pv_states = _hourly_from_records(records, "totalEnergy", tz)
-            # La carga se mide con su contador de por vida.
-            load_sums, load_states = _hourly_from_records(records, "eLoadTotal", tz)
+            # --- El contador de por vida de la produccion y de la carga ----
+            pv_values, pv_first = _hourly_values(records, "totalEnergy", tz)
+            pv_productions = _productions(pv_values, pv_first)
+            load_values, load_first = _hourly_values(records, "eLoadTotal", tz)
+            load_productions = _productions(load_values, load_first)
 
-            for sums, states, name, ref_month, ref_year in (
-                (pv_sums, pv_states, "plant_pv_energy_total", month_total, year_total),
+            for name, values, first, productions, ref_month, ref_year in (
                 (
-                    load_sums,
-                    load_states,
+                    "plant_pv_energy_total",
+                    pv_values,
+                    pv_first,
+                    pv_productions,
+                    month_total,
+                    year_total,
+                ),
+                (
                     "plant_load_energy_total",
+                    load_values,
+                    load_first,
+                    load_productions,
                     load_month_total,
                     load_year_total,
                 ),
             ):
-                if not sums:
+                if not values:
                     continue
-                openings_sum, openings_state, month_start, detail_month, _ = _openings(
-                    sums, states, ref_month, ref_year, tz
-                )
-                merged = {**openings_sum, **sums}
-                merged_states = {**openings_state, **states}
-                # El total del mes: la apertura del mes mas el detalle.
-                # La apertura del ano queda fuera (es de enero).
-                total_month = (
-                    sum(v for k, v in merged.items() if k >= month_start)
-                    if month_start is not None
-                    else detail_month
-                )
                 statistic = f"sensor.{prefix}_{name}"
-                if args.dry_run:
-                    print(
-                        f"  {plant.name:11} {name:24} {len(merged):3} h  "
-                        f"mes={total_month:8.2f} kWh (API {month_total})"
-                    )
-                    continue
-                count = await _import_statistics(
-                    session, ha_token, statistic, merged, merged_states
-                )
-                print(
-                    f"  {plant.name:11} {name:24} {count:3} h importadas en {statistic}  "
-                    f"mes={total_month:.2f} kWh (API {month_total})"
-                )
-                if name == "plant_pv_energy_total":
-                    for hour, value in merged.items():
-                        aggregate["pv"][hour] = aggregate["pv"].get(hour, 0.0) + value
+                absolute[statistic] = values
+                openings[statistic] = _openings(values, first, productions, ref_month, ref_year, tz)
 
-            # --- El resto de series: desde la serie de potencias -----------
-            for field, statistic_name, group, sign in SERIES:
+            # --- Los contadores que acumula la propia integracion ---------
+            for field, statistic_name, _group, sign in SERIES:
                 if field in ("pvElectricity", "backupLoad"):
                     continue
                 samples = series.get(field)
@@ -474,42 +526,74 @@ async def main() -> int:
                     ).items():
                         hourly[hour_start] = hourly.get(hour_start, 0.0) + kwh
                 statistic = f"sensor.{prefix}_{statistic_name}"
-                if args.dry_run:
-                    print(f"  {plant.name:11} {statistic_name:24} {len(hourly):3} h")
-                    continue
-                count = await _import_statistics(session, ha_token, statistic, hourly)
-                print(
-                    f"  {plant.name:11} {statistic_name:24} {count:3} h importadas en {statistic}"
-                )
-                if group in aggregate:
-                    for hour, value in hourly.items():
-                        aggregate[group][hour] = aggregate[group].get(hour, 0.0) + value
+                live = states.get(statistic, {}).get("state")
+                try:
+                    live_value = float(live)
+                except (TypeError, ValueError):
+                    live_value = sum(hourly.values())
+                absolute[statistic] = _counter_values(hourly, live_value)
 
-        if not args.dry_run:
-            for group, statistic_name in AGGREGATE_SERIES:
-                bucket = aggregate.get(group)
-                if not bucket:
+        # --- Los agregados: la suma de las plantas ------------------------
+        for suffix, statistic_name in AGGREGATE_SERIES:
+            statistic = f"sensor.{statistic_name}"
+            merged: dict[datetime, float] = {}
+            merged_openings: dict[datetime, float] = {}
+            for plant_statistic, values in absolute.items():
+                if not plant_statistic.endswith(suffix):
                     continue
-                statistic = f"sensor.{statistic_name}"
-                count = await _import_statistics(session, ha_token, statistic, bucket)
-                print(f"  {'':11} {statistic_name:24} {count:3} h importadas en {statistic}")
+                for hour, value in values.items():
+                    merged[hour] = merged.get(hour, 0.0) + value
+                for hour, value in openings.get(plant_statistic, {}).items():
+                    merged_openings[hour] = merged_openings.get(hour, 0.0) + value
+            if merged:
+                absolute[statistic] = merged
+                openings[statistic] = merged_openings
+
+        # --- La importacion, con el cero del recorder ----------------------
+        for statistic, values in absolute.items():
+            base = await _recorder_base(session, ha_token, statistic)
+            if base is None:
+                print(f"  {statistic}: el recorder no tiene datos, se omite")
+                continue
+            sums = {hour: value - base for hour, value in values.items()}
+            states_of = dict(values)
+            for hour, value in openings.get(statistic, {}).items():
+                sums[hour] = value - base
+                states_of[hour] = value
+
+            # La comprobacion: el total del mes y del ano tienen que ser los
+            # que publica el API.
+            hours = sorted(sums)
+            checks = ""
+            if hours:
+                newest = values[hours[-1]]
+                for label, opening in openings.get(statistic, {}).items():
+                    if label.hour != 0:
+                        continue
+                    total = newest - opening
+                    checks += f"  {label:%m-%d}={total:.2f}"
+            if args.dry_run:
+                print(f"  {statistic:56} {len(sums):3} h  cero={base:10.2f}{checks}")
+                continue
+
+            count = await _import_statistics(session, ha_token, statistic, sums, states_of)
+            first = min(sums) if sums else None
+            last = max(sums) if sums else None
+            span = f"{first:%m-%d %H} -> {last:%m-%d %H}" if first else ""
+            print(f"  {statistic:56} {count:3} h  cero={base:10.2f}  {span}{checks}")
 
     return 0
 
 
 def _as_float(value: Any) -> float | None:
-    """Coerce a float, or None."""
+    """Return a float, or None when the value is missing."""
+    if value in (None, ""):
+        return None
     try:
         return float(value)
     except (TypeError, ValueError):
         return None
 
 
-def _month_start(hours: dict[datetime, float], tz: timezone) -> datetime:
-    """The first instant of the month of the given hours."""
-    first = min(hours)
-    return first.astimezone(tz).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-
-
 if __name__ == "__main__":
-    sys.exit(asyncio.run(main()))
+    raise SystemExit(asyncio.run(main()))

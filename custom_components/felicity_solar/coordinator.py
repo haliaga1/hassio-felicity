@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import time
 from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
@@ -40,7 +41,7 @@ from .const import (
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
 )
-from .counters import LifetimeCounters
+from .counters import MAX_INTEGRATION_HOURS, LifetimeCounters
 from .vendor.felicity_client import (
     Alert,
     Device,
@@ -75,7 +76,7 @@ class FelicityData:
         return self.devices.get(serial_number)
 
 
-def select_primary_flow(data: FelicityData) -> EnergyFlow | None:
+def _primary_flow(devices: dict[str, Device], flows: dict[str, EnergyFlow]) -> EnergyFlow | None:
     """Return the energy flow of the **inverter** of a plant.
 
     The plant reports a flow per device and the order in which the devices
@@ -86,14 +87,19 @@ def select_primary_flow(data: FelicityData) -> EnergyFlow | None:
     """
     inverter: EnergyFlow | None = None
     fallback: EnergyFlow | None = None
-    for serial_number, flow in data.flows.items():
-        device = data.devices.get(serial_number)
+    for serial_number, flow in flows.items():
+        device = devices.get(serial_number)
         if device is not None and device.product_type is ProductType.INVERTER:
             inverter = flow
             break
         if fallback is None and flow.pv_power is not None:
             fallback = flow
     return inverter or fallback
+
+
+def select_primary_flow(data: FelicityData) -> EnergyFlow | None:
+    """Return the energy flow of the **inverter** of a plant."""
+    return _primary_flow(data.devices, data.flows)
 
 
 FelicityConfigEntry = ConfigEntry
@@ -117,6 +123,7 @@ class FelicityCoordinator(DataUpdateCoordinator[FelicityData]):
         self._store = store
         self._counters: LifetimeCounters | None = None
         self._counters_dirty = False
+        self._last_update: float | None = None
 
         interval = entry.options.get(
             CONF_SCAN_INTERVAL, entry.data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
@@ -220,10 +227,11 @@ class FelicityCoordinator(DataUpdateCoordinator[FelicityData]):
             except FelicityError as exc:
                 _LOGGER.debug("Could not read the plant details: %s", exc)
 
-        counters = self._update_counters(plant_details)
+        device_map = {device.serial_number: device for device in devices}
+        counters = self._update_counters(plant_details, device_map, flows)
 
         data = FelicityData(
-            devices={device.serial_number: device for device in devices},
+            devices=device_map,
             snapshots=snapshots,
             flows=flows,
             plant_details=plant_details,
@@ -261,19 +269,34 @@ class FelicityCoordinator(DataUpdateCoordinator[FelicityData]):
             return None
         return select_primary_flow(data)
 
-    def _update_counters(self, details: PlantDetails | None) -> LifetimeCounters | None:
+    def _update_counters(
+        self,
+        details: PlantDetails | None,
+        devices: dict[str, Device],
+        flows: dict[str, EnergyFlow],
+    ) -> LifetimeCounters | None:
         """Accumulate the lifetime counters and persist them.
 
         The counters have to survive a restart, otherwise every restart
         would reset the Energy Dashboard totals.
         """
-        if details is None:
-            return self._counters
         if self._counters is None:
             self._counters = LifetimeCounters()
-        self._counters.update(details)
+        if details is not None:
+            self._counters.update(details)
+        self._counters.update_flow(_primary_flow(devices, flows), self._elapsed_hours())
         self._counters_dirty = True
         return self._counters
+
+    def _elapsed_hours(self) -> float:
+        """Return the hours since the last update, to integrate the powers."""
+        now = time.monotonic()
+        if self._last_update is None:
+            self._last_update = now
+            return 0.0
+        elapsed = (now - self._last_update) / 3600
+        self._last_update = now
+        return min(elapsed, MAX_INTEGRATION_HOURS)
 
     async def async_persist_counters(self) -> None:
         """Write the accumulated counters to the store, if they changed."""
