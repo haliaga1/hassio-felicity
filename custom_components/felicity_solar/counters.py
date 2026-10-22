@@ -55,6 +55,8 @@ class LifetimeCounters:
     _last_daily: dict[str, float] = field(default_factory=dict)
     #: The day the daily counters belonged to.
     _day: str = ""
+    #: Whether the battery energy was already read from the power series.
+    seeded: bool = False
 
     def update(self, details: PlantDetails) -> None:
         """Accumulate the daily counters of the plant.
@@ -106,6 +108,20 @@ class LifetimeCounters:
         else:
             self.battery_discharging_kwh += -power * hours / 1000
 
+    def seed_battery(self, charging_kwh: float, discharging_kwh: float) -> None:
+        """Adopt the energy the battery has already moved.
+
+        The vendor publishes the daily counter of the battery empty, so the
+        energy it moved before the integration started is read from the
+        power series of the API. It is only done once: afterwards the
+        counter grows with the power of the flow.
+        """
+        if self.seeded:
+            return
+        self.battery_charging_kwh = max(self.battery_charging_kwh, charging_kwh)
+        self.battery_discharging_kwh = max(self.battery_discharging_kwh, discharging_kwh)
+        self.seeded = True
+
     def to_dict(self) -> dict[str, Any]:
         """Serialise the counters for storage."""
         return {
@@ -115,6 +131,7 @@ class LifetimeCounters:
             "battery_discharging_kwh": self.battery_discharging_kwh,
             "last_daily": dict(self._last_daily),
             "day": self._day,
+            "seeded": self.seeded,
         }
 
     @classmethod
@@ -131,6 +148,7 @@ class LifetimeCounters:
                 str(k): float(v) for k, v in last_daily.items() if isinstance(v, (int, float))
             }
         counters._day = str(payload.get("day", ""))
+        counters.seeded = bool(payload.get("seeded", False))
         return counters
 
 

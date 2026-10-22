@@ -53,6 +53,7 @@ from .vendor.felicity_client import (
     PlantDetails,
     ProductType,
     Snapshot,
+    series_energy,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -229,6 +230,7 @@ class FelicityCoordinator(DataUpdateCoordinator[FelicityData]):
 
         device_map = {device.serial_number: device for device in devices}
         counters = self._update_counters(plant_details, device_map, flows)
+        await self._seed_battery_counters()
 
         data = FelicityData(
             devices=device_map,
@@ -297,6 +299,30 @@ class FelicityCoordinator(DataUpdateCoordinator[FelicityData]):
         elapsed = (now - self._last_update) / 3600
         self._last_update = now
         return min(elapsed, MAX_INTEGRATION_HOURS)
+
+    async def _seed_battery_counters(self) -> None:
+        """Adopt the energy the battery moved before the integration started.
+
+        The vendor publishes the daily counter of the battery empty, so the
+        only source of its history is the power series of the API. It is
+        read once, when the integration starts.
+        """
+        if self._counters is None or self._counters.seeded or not self.plant_id:
+            return
+        try:
+            series = await self.client.get_storage_series(self.plant_id)
+        except FelicityError as exc:
+            _LOGGER.debug("Could not read the power series of the plant: %s", exc)
+            return
+        charging = series_energy(series.get("batteryCharging") or [], 1)
+        discharging = series_energy(series.get("batteryDischarge") or [], -1)
+        self._counters.seed_battery(charging, discharging)
+        self._counters_dirty = True
+        _LOGGER.debug(
+            "Seeded the battery counters with %.2f kWh charged and %.2f kWh discharged",
+            charging,
+            discharging,
+        )
 
     async def async_persist_counters(self) -> None:
         """Write the accumulated counters to the store, if they changed."""

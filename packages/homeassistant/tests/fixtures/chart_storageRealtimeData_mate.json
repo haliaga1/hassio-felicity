@@ -1,0 +1,28 @@
+{
+  "storageMateDTOS": [
+    {
+      "field": "batteryCharging",
+      "data": [
+        1000.0,
+        2000.0,
+        0.0
+      ]
+    },
+    {
+      "field": "batteryDischarge",
+      "data": [
+        0.0,
+        -500.0,
+        -500.0
+      ]
+    },
+    {
+      "field": "pvElectricity",
+      "data": [
+        0.0,
+        1500.0,
+        1500.0
+      ]
+    }
+  ]
+}

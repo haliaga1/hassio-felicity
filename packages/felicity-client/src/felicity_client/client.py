@@ -155,6 +155,10 @@ class FelicityClient:
         """Return the instantaneous energy flow of a device within a plant."""
         return await self._energy.get_energy_flow(device_sn, plant_id)
 
+    async def get_storage_series(self, plant_id: str) -> dict[str, list[float]]:
+        """Return the power series of a plant, in watts, keyed by field."""
+        return await self._energy.get_storage_series(plant_id)
+
     async def list_alerts(self, device_sn: str | None = None) -> list[Alert]:
         """Return the active warnings of the account."""
         return await self._alerts.list_alerts(device_sn)

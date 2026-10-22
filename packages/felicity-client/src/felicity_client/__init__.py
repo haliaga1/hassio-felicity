@@ -37,6 +37,7 @@ from .models import (
     ProductType,
     Snapshot,
 )
+from .services.energy import series_energy
 
 __version__ = "0.1.0"
 
@@ -68,4 +69,5 @@ __all__ = [
     "StoredToken",
     "TokenStore",
     "__version__",
+    "series_energy",
 ]

@@ -124,6 +124,11 @@ def register_api() -> None:
     respx.post(f"{API_URL}/device/device_warring_list").mock(
         return_value=httpx.Response(200, json=envelope(load_fixture("device_warring_list.json")))
     )
+    respx.post(f"{API_URL}/storageRealtimeData/chart_storageRealtimeData_mate").mock(
+        return_value=httpx.Response(
+            200, json=envelope(load_fixture("chart_storageRealtimeData_mate.json"))
+        )
+    )
 
 
 def _snapshot_response(request: httpx.Request) -> httpx.Response:

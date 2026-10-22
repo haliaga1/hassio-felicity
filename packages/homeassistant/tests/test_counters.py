@@ -141,3 +141,21 @@ class TestBatteryFromTheFlow:
         counters.update_flow(_flow(1000.0), 0.5)
         counters.update_flow(_flow(2000.0), 0.5)
         assert counters.battery_charging_kwh == pytest.approx(1.5)
+
+    def test_the_history_of_the_battery_is_seeded_once(self) -> None:
+        counters = LifetimeCounters()
+        counters.seed_battery(10.0, 2.0)
+        assert counters.battery_charging_kwh == pytest.approx(10.0)
+        assert counters.battery_discharging_kwh == pytest.approx(2.0)
+        # A second seed does not change anything.
+        counters.seed_battery(20.0, 5.0)
+        assert counters.battery_charging_kwh == pytest.approx(10.0)
+        assert counters.battery_discharging_kwh == pytest.approx(2.0)
+
+    def test_the_seed_survives_a_round_trip(self) -> None:
+        counters = LifetimeCounters()
+        counters.seed_battery(10.0, 2.0)
+        restored = LifetimeCounters.from_dict(counters.to_dict())
+        assert restored.seeded is True
+        restored.seed_battery(20.0, 5.0)
+        assert restored.battery_charging_kwh == pytest.approx(10.0)
