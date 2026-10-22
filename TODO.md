@@ -1,7 +1,7 @@
 # TODO — felicity-metrics
 
 > Estado de avance de la integración **Felicity Solar** para Home Assistant.
-> Última actualización: **2026-10-21**.
+> Última actualización: **2026-10-22**.
 
 ## Estado general
 
@@ -10,12 +10,68 @@
 | 0 — Cimientos (repo, tooling, CI) | ✅ | `uv`, `ruff`, `mypy --strict`, `pytest`, pre-commit, 2 workflows de CI |
 | 1 — `felicity-client`: auth, plantas, dispositivos | ✅ | Login RSA, rotación de clave, paginación completa |
 | 2 — `felicity-client`: energía, alarmas, WebSocket | ✅ | `aiohttp` en vez de `websockets` (HA ya lo trae) |
-| 3 — Integración HA: sensores | ✅ | 163 tests de librería + 25 de integración |
+| 3 — Integración HA: sensores | ✅ | 166 tests de librería + 54 de integración |
 | 4 — Integración HA: energía, alarmas, docs | ✅ | Contadores de planta, Energy Dashboard listo |
 | 5 — Control por comandos (post-v1) | ⏳ | El API lo soporta, v1 es solo lectura |
 
-**Instalado y funcionando** en el Home Assistant real: 63 entidades con
-datos en vivo, planta "Antares" (IVEM8048-II + FLA48100-EU).
+**Instalado y funcionando** en el Home Assistant real: dos plantas
+("Antares" y "Antupirén"), con el panel de Energía validado **sin errores**
+y los totales del día, del mes y del año **coincidiendo con la app
+oficial**.
+
+---
+
+## Hecho en esta iteración (2026-10-22)
+
+### Flujo en tiempo real en la pantalla de Energía
+
+- [x] Home Assistant 2026.10 admite **dos sensores de potencia** por fuente
+      (`power_config` con `stat_rate_from` / `stat_rate_to`): se exploitó
+      para el flujo bidireccional de batería y red
+- [x] Sensores de potencia separados: carga y descarga de batería, entrada
+      y salida de red (por planta y agregados)
+- [x] Tarjeta **`power-sankey`** en la página "Felicity Solar": es el
+      equivalente al "Descripción general" de la app oficial (PV, red,
+      batería, cargando, carga)
+- [x] Tarjeta "Flujo en tiempo real" por planta, con las seis potencias y
+      el gauge del SOC
+- [x] `energy/validate` → **sin errores** con el `power_config` nuevo
+
+### Totales del panel de Energía = los de la app oficial
+
+El error de fondo: el recorder guarda, para un sensor `total_increasing`, el
+**valor acumulado** del contador al final de la hora en la columna `sum`, y
+el panel lee el consumo de un periodo como la **diferencia** entre la suma
+más nueva y la más antigua. El backfill importaba el *delta* de cada hora.
+
+- [x] El backfill importa ahora el **valor acumulado** del contador
+- [x] Las aperturas de mes y año se escriben en la **hora anterior** al
+      periodo, para que el recorder las encuentre como la suma más antigua
+- [x] Todo se reescala con el **cero del recorder** (el primer valor que
+      vio del sensor), la misma escala en la que él acumula
+- [x] Verificado contra la app oficial:
+
+      | planta   | hoy (HA / app) | mes (HA / app) | año (HA / app) |
+      |----------|-----------------|----------------|----------------|
+      | Antares  | 3.62 / 3.91 kWh | 222.15 / 222.2 | 1295.35 / 1295.4 |
+      | Antupirén| 4.74 / 5.05 kWh | 314.96 / 315.2 | 2418.86 / 2419.2 |
+
+      (la diferencia es la producción de los últimos minutos entre las dos
+      lecturas)
+
+### Batería y red
+
+- [x] El API publica `todayBatteryCharging` **vacío** (siempre 0): el
+      contador de batería se integra ahora con la **potencia del flujo**
+- [x] La historia que la batería ya tenía se siembra una sola vez desde la
+      **serie de potencias** (`chart_storageRealtimeData_mate`)
+- [x] `felicity-client`: `get_storage_series()` y `series_energy()`
+
+### Dashboard
+
+- [x] Las entidades del dashboard se resuelven por **`unique_id`**, no por
+      id construido: el id de una entidad depende del nombre traducido y
+      cambiaba con las traducciones
 
 ---
 
@@ -74,7 +130,7 @@ datos en vivo, planta "Antares" (IVEM8048-II + FLA48100-EU).
 
 ---
 
-## Hecho en esta iteración (2026-10-21)
+## Hecho en la iteración anterior (2026-10-21)
 
 ### Selección de planta y cuentas
 
@@ -128,10 +184,9 @@ datos en vivo, planta "Antares" (IVEM8048-II + FLA48100-EU).
 - [x] **Sensores agregados** de todas las plantas
       (`sensor.felicity_solar_total_*_all_plants`): el Energy Dashboard de HA
       es único para toda la instancia
-- [x] **Backfill del recorder**: se implementó y **se descartó**. Importar
-      la producción del día como una única estadística a medianoche produce
-      un pico engañoso en el gráfico. El recorder reconstruye las sumas
-      horarias solo, a partir del momento de la instalación.
+- [x] **Backfill del recorder**: se implementó, se descartó y **volvió**,
+      con la semántica correcta (el valor acumulado del contador, en la
+      escala del recorder). Ver la iteración de 2026-10-22.
 - [x] Panel de Energía configurado con el agregado, validado sin errores
 
 - [x] **Pestañas por planta** (`scripts/create_plant_dashboard.py`): una
@@ -175,6 +230,8 @@ datos en vivo, planta "Antares" (IVEM8048-II + FLA48100-EU).
 | D3 | `bmsState` es una máscara de bits (`9152`), no un estado legible | Bajo |
 | D4 | El polling REST es el único transporte fiable: 60 s por defecto | Medio, Heredado del fabricante |
 | D5 | Los fixtures se re-capturan con frecuencia (los valores cambian con el sol); las expectativas de los tests se derivan del fixture, no están fijadas | Bajo, por diseño |
+| D6 | El API solo publica **4 días** de serie de potencias: el histórico de batería y red del panel empieza ahí, no en el inicio de la planta | Medio, limite del fabricante |
+| D7 | La energía de la batería se integra con la potencia del flujo (el API publica su contador diario vacío): tiene un error de integración del orden del 1 % | Bajo, documentado |
 
 ---
 
