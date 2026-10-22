@@ -186,6 +186,9 @@ class Snapshot:
                 power=to_float(payload.get("acRInPower")),
                 load_percent=to_float(payload.get("loadPercent")),
                 energy_today_kwh=to_float(payload.get("eLoadToday")),
+                # El total de por vida de la salida en CA. Es el mismo
+                # contador que publica el historico del API, para que el
+                # backfill y el sensor hablen del mismo numero.
                 energy_total_kwh=to_float(
                     payload.get("eLoadTotal"),
                     to_float(payload.get("eLoadYear"), to_float(payload.get("tLoadYear"))),
@@ -231,6 +234,9 @@ class Snapshot:
                 total_kwh=to_float(payload.get("totalEnergy")),
                 total_unit=to_str(payload.get("totalEnergyUnit")),
                 energy_today_kwh=to_float(payload.get("eLoadToday")),
+                # El total de por vida de la salida en CA. Es el mismo
+                # contador que publica el historico del API, para que el
+                # backfill y el sensor hablen del mismo numero.
                 energy_total_kwh=to_float(
                     payload.get("eLoadTotal"),
                     to_float(payload.get("eLoadYear"), to_float(payload.get("tLoadYear"))),

@@ -1,24 +1,34 @@
 #!/usr/bin/env python3
-"""Backfill the recorder with the real production history of the plants.
+"""Backfill the recorder with the real history of the plants, and the
+opening balances of the counters that predate the integration.
 
-The FSolar API publishes the historical production of each plant at a
-**5 minute** resolution::
+Two sources are used, and both are exact:
 
-    POST /storageRealtimeData/chart_storageRealtimeData_mate
-      {"plantId": ..., "dateType": 1, "language": "en_US"}
+1. **The historical records** (``/storageRealtimeData/list_storageRealtimeData_new``)
+   are a paginated list of snapshots, one every 5 minutes, each holding the
+   *cumulative* counters of that instant (``totalEnergy`` for the lifetime
+   production, ``eLoadTotal`` for the lifetime consumption). The production
+   of an hour is therefore the difference between two snapshots, with no
+   integration error at all.
 
-The response holds one array of watts per flow, concatenated day after day
-(288 samples of 5 minutes each), plus a ``dataTime`` axis with the labels of
-a single day. The last sample is *now*, so the current day starts at
-``len(samples) - minutes_since_midnight / 5`` and every previous day is 288
-samples further back.
+2. **The opening balances.** The API publishes the month's and the year's
+   totals (``monthPv``, ``yearPv``) but not their daily breakdown. Those
+   totals are turned into a single *opening* statistic at the first hour of
+   the period, so the Energy Dashboard shows the real figure for "this
+   month" and "this year" instead of only the days the integration has been
+   running.
 
-From that series the production of every hour is computed and imported into
-the recorder as the hourly ``sum`` of the lifetime counter, which is exactly
-what the Home Assistant Energy Dashboard consumes.
+The openings are nested and computed as residuals, from the longest period
+to the shortest, so every window of the dashboard stays consistent::
 
-The result is verified against the plant's own daily counter (``todayPv``):
-if the integration of the series does not reproduce it, nothing is written.
+    year  opening = yearPv  - detail - month opening
+    month opening = monthPv - detail
+    detail         = the exact hourly production
+
+    today    = detail of today                       (exact)
+    7 days   = detail of the last 7 days             (exact)
+    this month = month opening + detail of the month  (= monthPv)
+    this year  = year opening + month opening + detail (= yearPv)
 
 Usage::
 
@@ -35,6 +45,7 @@ import argparse
 import asyncio
 import os
 import sys
+import unicodedata
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -46,17 +57,14 @@ SAMPLE_MINUTES = 5
 #: Samples of a full day (24 h / 5 min).
 SAMPLES_PER_DAY = 24 * 60 // SAMPLE_MINUTES
 
-#: The statistic the Energy Dashboard consumes for the production.
+#: The statistic of the Energy Dashboard that consumes the production.
 PLANT_STATISTIC = "plant_pv_energy_total"
 AGGREGATE_STATISTIC = "felicity_solar_total_pv_energy_all_plants"
 
 #: The series of the FSolar history -> the statistic it feeds.
 #:
-#: The mapping was confirmed against the live sensors: the last sample of
-#: each series matches the corresponding live reading to the watt.
-#:
 #: ``sign`` is applied to the samples: the battery reports the discharge as a
-#: negative power, but the counters have to grow.
+#: negative power, but the counter of the discharged energy has to grow.
 SERIES: tuple[tuple[str, str, str, int], ...] = (
     ("pvElectricity", "plant_pv_energy_total", "pv", 1),
     ("backupLoad", "plant_load_energy_total", "load", 1),
@@ -74,15 +82,17 @@ AGGREGATE_SERIES: tuple[tuple[str, str], ...] = (
 
 API_URL = "https://shine-api.felicitysolar.com"
 CHART_PATH = "/storageRealtimeData/chart_storageRealtimeData_mate"
+RECORDS_PATH = "/storageRealtimeData/list_storageRealtimeData_new"
+PLANT_DETAILS_PATH = "/plant/plantDetails"
 
 
-async def _login(email: str, password: str) -> tuple[str, dict[str, str]]:
-    """Log in to FSolar and return the token and the headers."""
+async def _login(email: str, password: str) -> dict[str, str]:
+    """Log in to FSolar and return the request headers."""
     from felicity_client import FelicityClient
 
     async with FelicityClient(email, password) as client:
         token = await client.auth.get_token()
-    headers = {
+    return {
         "accept": "application/json, text/plain, */*",
         "authorization": token,
         "content-type": "application/json",
@@ -90,20 +100,46 @@ async def _login(email: str, password: str) -> tuple[str, dict[str, str]]:
         "source": "WEB",
         "Node": "INT",
     }
-    return token, headers
+
+
+async def _post(
+    session: aiohttp.ClientSession, headers: dict[str, str], path: str, payload: dict
+) -> dict[str, Any]:
+    """POST to the FSolar API and return the ``data`` member."""
+    async with session.post(f"{API_URL}{path}", headers=headers, json=payload) as response:
+        body = await response.json()
+    return body.get("data") or {}
+
+
+async def _fetch_records(
+    session: aiohttp.ClientSession, headers: dict[str, str], plant_id: str
+) -> list[dict[str, Any]]:
+    """Return every historical record of a plant, oldest first."""
+    records: list[dict[str, Any]] = []
+    page = 1
+    while True:
+        data = await _post(
+            session,
+            headers,
+            RECORDS_PATH,
+            {"plantId": plant_id, "dateType": 1, "pageNum": page, "pageSize": 300},
+        )
+        items = data.get("dataList") or []
+        records.extend(items)
+        total = int(data.get("total") or 0)
+        if not items or len(records) >= total or page > 30:
+            break
+        page += 1
+    return records
 
 
 async def _fetch_series(
     session: aiohttp.ClientSession, headers: dict[str, str], plant_id: str
 ) -> dict[str, list[float]]:
     """Return the power series of a plant, in watts, keyed by field."""
-    async with session.post(
-        f"{API_URL}{CHART_PATH}",
-        headers=headers,
-        json={"plantId": plant_id, "dateType": 1, "language": "en_US"},
-    ) as response:
-        payload = await response.json()
-    data = payload.get("data") or {}
+    data = await _post(
+        session, headers, CHART_PATH, {"plantId": plant_id, "dateType": 1, "language": "en_US"}
+    )
     series: dict[str, list[float]] = {}
     for serie in data.get("storageMateDTOS", []):
         field = serie.get("field")
@@ -115,13 +151,56 @@ async def _fetch_series(
     return series
 
 
-def _day_starts(samples: list[float], now: datetime, tz: timezone) -> list[tuple[datetime, int]]:
-    """Return the (start, first index) of every day present in the series.
+def _hourly_from_records(
+    records: list[dict[str, Any]], field: str, tz: timezone, resets_daily: bool = False
+) -> tuple[dict[datetime, float], dict[datetime, float]]:
+    """Return the hourly production and the hourly value of a counter.
 
-    The last sample is *now*, so the current day starts
-    ``samples_since_midnight`` samples before the end, and every previous
-    day is ``SAMPLES_PER_DAY`` samples further back.
+    The production is computed **between consecutive records**, so no energy
+    is lost in the gap between two hours. A counter that goes down has been
+    reset (the daily ones reset at midnight), and then the whole current
+    value is the production of that interval.
     """
+    points: list[tuple[datetime, float]] = []
+    for record in records:
+        raw = record.get(field)
+        stamp = record.get("dataTime")
+        if raw in (None, "") or not stamp:
+            continue
+        try:
+            moment = datetime.fromisoformat(str(stamp)).astimezone(tz)
+            value = float(raw)
+        except (TypeError, ValueError):
+            continue
+        points.append((moment, value))
+    points.sort()
+
+    sums: dict[datetime, float] = {}
+    states: dict[datetime, float] = {}
+    previous: tuple[datetime, float] | None = None
+    for moment, value in points:
+        hour = moment.replace(minute=0, second=0, microsecond=0)
+        if previous is not None:
+            delta = value - previous[1]
+            if delta < 0:
+                if not resets_daily:
+                    # Un contador de por vida que baja significa que se
+                    # cambio el equipo: la produccion de ese intervalo se
+                    # desconoce, asi que no se cuenta nada.
+                    previous = (moment, value)
+                    states[hour] = value
+                    continue
+                # El contador diario se reinicio a medianoche: todo el
+                # valor actual es la produccion desde el ultimo reinicio.
+                delta = value
+            sums[hour] = sums.get(hour, 0.0) + max(0.0, delta)
+        states[hour] = value
+        previous = (moment, value)
+    return sums, states
+
+
+def _day_starts(samples: list[float], now: datetime, tz: timezone) -> list[tuple[datetime, int]]:
+    """Return the (start, first index) of every day present in the series."""
     local_now = now.astimezone(tz)
     midnight = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
     minutes_today = (local_now - midnight).total_seconds() / 60
@@ -140,12 +219,7 @@ def _day_starts(samples: list[float], now: datetime, tz: timezone) -> list[tuple
 def _hourly_production(
     samples: list[float], day_start: datetime, day_start_index: int, sign: int = 1
 ) -> dict[datetime, float]:
-    """Return the kWh of each hour of a day.
-
-    ``sign`` flips the samples, and only the positive part counts: the
-    battery reports the discharge as a negative power, but the counter of the
-    discharged energy has to grow.
-    """
+    """Return the kWh of each hour of a day, from the power series."""
     result: dict[datetime, float] = {}
     for hour in range(24):
         start = hour * (60 // SAMPLE_MINUTES)
@@ -157,18 +231,67 @@ def _hourly_production(
     return result
 
 
+def _openings(
+    sums: dict[datetime, float],
+    states: dict[datetime, float],
+    month_total: float | None,
+    year_total: float | None,
+    tz: timezone,
+) -> tuple[dict[datetime, float], dict[datetime, float]]:
+    """Compute the opening balances of the month and the year.
+
+    They are nested residuals, from the longest period to the shortest, so
+    every window of the Energy Dashboard stays consistent.
+    """
+    openings_sum: dict[datetime, float] = {}
+    openings_state: dict[datetime, float] = {}
+    if not sums:
+        return openings_sum, openings_state, None, 0.0, 0.0
+
+    hours = sorted(sums)
+    first_hour = hours[0]
+    first_value = states.get(first_hour, 0.0)
+
+    local = first_hour.astimezone(tz)
+    month_start = local.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    year_start = local.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    detail_month = sum(v for k, v in sums.items() if k >= month_start)
+    detail_year = sum(sums.values())
+
+    month_opening = None
+    if month_total is not None:
+        month_opening = month_total - detail_month
+    year_opening = None
+    if year_total is not None:
+        year_opening = year_total - detail_year - (month_opening or 0.0)
+
+    if month_opening is not None:
+        openings_sum[month_start] = month_opening
+        # El valor del contador al inicio del mes.
+        openings_state[month_start] = first_value - detail_month
+    if year_opening is not None:
+        openings_sum[year_start] = year_opening
+        openings_state[year_start] = first_value - detail_year - (month_opening or 0.0)
+    return openings_sum, openings_state, month_start, detail_month, detail_year
+
+
 async def _import_statistics(
     session: aiohttp.ClientSession,
     token: str,
     statistic_id: str,
-    hourly: dict[datetime, float],
+    sums: dict[datetime, float],
+    states: dict[datetime, float] | None = None,
 ) -> int:
     """Import the hourly statistics of one sensor."""
-    stats = [
-        {"start": start.isoformat(), "sum": round(value, 4)}
-        for start, value in sorted(hourly.items())
-        if value > 0
-    ]
+    stats: list[dict[str, Any]] = []
+    for start, value in sorted(sums.items()):
+        if value <= 0:
+            continue
+        entry: dict[str, Any] = {"start": start.isoformat(), "sum": round(value, 4)}
+        if states and start in states:
+            entry["state"] = round(states[start], 4)
+        stats.append(entry)
     if not stats:
         return 0
 
@@ -202,6 +325,43 @@ async def _import_statistics(
     return len(stats)
 
 
+def _plant_prefix(plant_name: str) -> str:
+    """Return the entity prefix of a plant, as the integration names it."""
+    normalized = unicodedata.normalize("NFKD", plant_name)
+    without_accents = "".join(c for c in normalized if not unicodedata.combining(c))
+    return "-".join(part for part in without_accents.lower().split() if part)
+
+
+def _tz_offset(name: str) -> float:
+    """Return the UTC offset in hours of a timezone name."""
+    try:
+        from zoneinfo import ZoneInfo
+
+        offset = ZoneInfo(name).utcoffset(datetime.now())
+        return (offset.total_seconds() / 3600) if offset else 0.0
+    except Exception:  # noqa: BLE001 - a missing timezone must not stop the backfill
+        return 0.0
+
+
+async def _load_year_total(client: Any, plant_id: str) -> float | None:
+    """The yearly AC output of the plant's inverter."""
+    try:
+        devices = await client.list_devices(plant_id=plant_id)
+    except Exception:  # noqa: BLE001 - a missing reference is not fatal
+        return None
+    for device in devices:
+        if device.product_type.name != "INVERTER":
+            continue
+        try:
+            snapshot = await client.get_snapshot(device.serial_number)
+        except Exception as exc:  # noqa: BLE001 - a missing reference is not fatal
+            print(f"    no se pudo leer el total anual de carga: {exc}")
+            continue
+        if snapshot.ac_in.energy_total_kwh is not None:
+            return snapshot.ac_in.energy_total_kwh
+    return None
+
+
 async def main() -> int:
     """Run the backfill."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -216,10 +376,9 @@ async def main() -> int:
         print("HA_URL, HA_TOKEN, FELICITY_TEST_EMAIL and FELICITY_TEST_PASSWORD are required")
         return 2
 
-    _, fsolar_headers = await _login(email, password)
+    fsolar_headers = await _login(email, password)
     headers = {"Authorization": f"Bearer {ha_token}"}
 
-    # La zona horaria de Home Assistant, que es la de las plantas.
     async with aiohttp.ClientSession(headers=headers) as session:
         async with session.get(f"{ha_url}/api/config") as response:
             ha_config = await response.json()
@@ -234,52 +393,97 @@ async def main() -> int:
         aggregate: dict[str, dict[datetime, float]] = {key: {} for key, _ in AGGREGATE_SERIES}
         for plant in plants:
             async with aiohttp.ClientSession() as fs:
+                records = await _fetch_records(fs, fsolar_headers, plant.id)
                 series = await _fetch_series(fs, fsolar_headers, plant.id)
-            if not series:
-                print(f"  {plant.name}: sin serie, se omite")
+                details = await _post(fs, fsolar_headers, PLANT_DETAILS_PATH, {"plantId": plant.id})
+            if not records:
+                print(f"  {plant.name}: sin registros, se omite")
                 continue
 
             prefix = _plant_prefix(plant.name)
-            details = await _plant_details(fsolar_headers, plant.id)
+            month_total = _as_float(details.get("monthPv"))
+            year_total = _as_float(details.get("yearPv")) or _as_float(details.get("accPv"))
+            # La carga tiene su propia referencia anual: el total anual de
+            # salida en CA del inversor (eLoadYear). El API no publica un
+            # total mensual de carga.
+            load_month_total = None
+            load_year_total = await _load_year_total(client, plant.id)
 
+            # --- Produccion: la de los registros historicos (exacta) --------
+            # La produccion del PV sale del contador diario (ePvToday) y el
+            # nivel del contador de por vida (totalEnergy).
+            pv_sums, _ = _hourly_from_records(records, "ePvToday", tz, resets_daily=True)
+            _, pv_states = _hourly_from_records(records, "totalEnergy", tz)
+            # La carga se mide con su contador de por vida.
+            load_sums, load_states = _hourly_from_records(records, "eLoadTotal", tz)
+
+            for sums, states, name, ref_month, ref_year in (
+                (pv_sums, pv_states, "plant_pv_energy_total", month_total, year_total),
+                (
+                    load_sums,
+                    load_states,
+                    "plant_load_energy_total",
+                    load_month_total,
+                    load_year_total,
+                ),
+            ):
+                if not sums:
+                    continue
+                openings_sum, openings_state, month_start, detail_month, _ = _openings(
+                    sums, states, ref_month, ref_year, tz
+                )
+                merged = {**openings_sum, **sums}
+                merged_states = {**openings_state, **states}
+                # El total del mes: la apertura del mes mas el detalle.
+                # La apertura del ano queda fuera (es de enero).
+                total_month = (
+                    sum(v for k, v in merged.items() if k >= month_start)
+                    if month_start is not None
+                    else detail_month
+                )
+                statistic = f"sensor.{prefix}_{name}"
+                if args.dry_run:
+                    print(
+                        f"  {plant.name:11} {name:24} {len(merged):3} h  "
+                        f"mes={total_month:8.2f} kWh (API {month_total})"
+                    )
+                    continue
+                count = await _import_statistics(
+                    session, ha_token, statistic, merged, merged_states
+                )
+                print(
+                    f"  {plant.name:11} {name:24} {count:3} h importadas en {statistic}  "
+                    f"mes={total_month:.2f} kWh (API {month_total})"
+                )
+                if name == "plant_pv_energy_total":
+                    for hour, value in merged.items():
+                        aggregate["pv"][hour] = aggregate["pv"].get(hour, 0.0) + value
+
+            # --- El resto de series: desde la serie de potencias -----------
             for field, statistic_name, group, sign in SERIES:
+                if field in ("pvElectricity", "backupLoad"):
+                    continue
                 samples = series.get(field)
                 if not samples:
                     continue
-
                 days = _day_starts(samples, now, tz)
                 hourly: dict[datetime, float] = {}
-                total_today = 0.0
                 for day_start, index in days:
-                    per_hour = _hourly_production(samples, day_start, index, sign)
-                    for hour_start, kwh in per_hour.items():
+                    for hour_start, kwh in _hourly_production(
+                        samples, day_start, index, sign
+                    ).items():
                         hourly[hour_start] = hourly.get(hour_start, 0.0) + kwh
-                        if group in aggregate:
-                            bucket = aggregate[group]
-                            bucket[hour_start] = bucket.get(hour_start, 0.0) + kwh
-                    if day_start.date() == now.date():
-                        total_today = sum(per_hour.values())
-
-                # Verificacion: la serie debe reproducir el contador diario del API.
-                check = ""
-                if field == "pvElectricity":
-                    expected = details.get("todayPv")
-                    if expected is not None:
-                        expected_f = float(expected)
-                        deviation = abs(total_today - expected_f)
-                        check = f"  (API {expected_f:.2f} kWh, desviacion {deviation:.2f})"
-                        if deviation > max(0.5, expected_f * 0.1):
-                            print(f"  {plant.name}: la serie NO cuadra{check}, se omite")
-                            continue
-
                 statistic = f"sensor.{prefix}_{statistic_name}"
                 if args.dry_run:
-                    print(
-                        f"  {plant.name:11} {field:18} {len(hourly):3} h  hoy {total_today:7.2f} kWh{check}"
-                    )
+                    print(f"  {plant.name:11} {statistic_name:24} {len(hourly):3} h")
                     continue
                 count = await _import_statistics(session, ha_token, statistic, hourly)
-                print(f"  {plant.name:11} {field:18} {count:3} h importadas en {statistic}{check}")
+                print(
+                    f"  {plant.name:11} {statistic_name:24} {count:3} h importadas en {statistic}"
+                )
+                if group in aggregate:
+                    for hour, value in hourly.items():
+                        aggregate[group][hour] = aggregate[group].get(hour, 0.0) + value
 
         if not args.dry_run:
             for group, statistic_name in AGGREGATE_SERIES:
@@ -288,47 +492,23 @@ async def main() -> int:
                     continue
                 statistic = f"sensor.{statistic_name}"
                 count = await _import_statistics(session, ha_token, statistic, bucket)
-                print(f"  {'':11} {'':18} {count:3} h importadas en {statistic}")
+                print(f"  {'':11} {statistic_name:24} {count:3} h importadas en {statistic}")
 
     return 0
 
 
-def _tz_offset(name: str) -> float:
-    """Return the UTC offset in hours of a timezone name."""
+def _as_float(value: Any) -> float | None:
+    """Coerce a float, or None."""
     try:
-        from zoneinfo import ZoneInfo
-
-        offset = ZoneInfo(name).utcoffset(datetime.now())
-        return (offset.total_seconds() / 3600) if offset else 0.0
-    except Exception:  # noqa: BLE001 - a missing timezone must not stop the backfill
-        return 0.0
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
-def _plant_prefix(plant_name: str) -> str:
-    """Return the entity prefix of a plant, as the integration names it.
-
-    Home Assistant slugs the names, which also strips the accents: the plant
-    "Antupirén" becomes ``antupiren``.
-    """
-    import unicodedata
-
-    normalized = unicodedata.normalize("NFKD", plant_name)
-    without_accents = "".join(c for c in normalized if not unicodedata.combining(c))
-    return "-".join(part for part in without_accents.lower().split() if part)
-
-
-async def _plant_details(headers: dict[str, str], plant_id: str) -> dict[str, Any]:
-    """Return the plant details."""
-    async with (
-        aiohttp.ClientSession() as session,
-        session.post(
-            f"{API_URL}/plant/plantDetails",
-            headers=headers,
-            json={"plantId": plant_id},
-        ) as response,
-    ):
-        payload = await response.json()
-    return payload.get("data") or {}
+def _month_start(hours: dict[datetime, float], tz: timezone) -> datetime:
+    """The first instant of the month of the given hours."""
+    first = min(hours)
+    return first.astimezone(tz).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
 
 if __name__ == "__main__":
