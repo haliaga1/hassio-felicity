@@ -61,6 +61,24 @@ def _plant_cards(prefix: str, known: set[str]) -> list[dict[str, Any]]:
     """Build the cards of a plant's page, mirroring the official app."""
     cards: list[dict[str, Any]] = []
 
+    # El flujo en tiempo real, como en la app oficial: PV, carga, bateria
+    # cargando/descargando y entrada/salida de red.
+    realtime = _entities_of(prefix, known, "plant_pv_power")
+    realtime += _entities_of(prefix, known, "plant_load_power")
+    realtime += _entities_of(prefix, known, "plant_battery_charging_power")
+    realtime += _entities_of(prefix, known, "plant_battery_discharging_power")
+    realtime += _entities_of(prefix, known, "plant_grid_import_power")
+    realtime += _entities_of(prefix, known, "plant_grid_export_power")
+    if realtime:
+        cards.append(
+            {
+                "type": "entities",
+                "title": "Flujo en tiempo real",
+                "show_header_toggle": False,
+                "entities": realtime,
+            }
+        )
+
     # El estado de cada flujo: de donde viene la energia y donde va.
     # Se buscan por identificador unico, porque el entity_id depende del
     # nombre traducido de la tarjeta.
@@ -200,6 +218,14 @@ def _summary_cards(known: set[str]) -> list[dict[str, Any]]:
         {
             "type": "energy-solar-graph",
             "title": "Generación (todas las plantas)",
+        }
+    )
+    # El flujo de potencia en tiempo real, el equivalente al "Descripcion
+    # general" de la app oficial.
+    cards.append(
+        {
+            "type": "power-sankey",
+            "title": "Flujo de energía en tiempo real",
         }
     )
     return cards
