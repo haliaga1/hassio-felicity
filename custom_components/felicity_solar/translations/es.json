@@ -250,6 +250,30 @@
           "cargando": "Cargando",
           "descargando": "Descargando"
         }
+      },
+      "plant_battery_charging_power": {
+        "name": "Potencia de carga de batería"
+      },
+      "plant_battery_discharging_power": {
+        "name": "Potencia de descarga de batería"
+      },
+      "plant_grid_import_power": {
+        "name": "Potencia de importación de red"
+      },
+      "plant_grid_export_power": {
+        "name": "Potencia de exportación de red"
+      },
+      "total_battery_charging_power": {
+        "name": "Potencia total de carga de batería"
+      },
+      "total_battery_discharging_power": {
+        "name": "Potencia total de descarga de batería"
+      },
+      "total_grid_import_power": {
+        "name": "Potencia total de importación de red"
+      },
+      "total_grid_export_power": {
+        "name": "Potencia total de exportación de red"
       }
     },
     "binary_sensor": {

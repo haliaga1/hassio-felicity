@@ -250,6 +250,30 @@
           "cargando": "Charging",
           "descargando": "Discharging"
         }
+      },
+      "plant_battery_charging_power": {
+        "name": "Battery charging power"
+      },
+      "plant_battery_discharging_power": {
+        "name": "Battery discharging power"
+      },
+      "plant_grid_import_power": {
+        "name": "Grid import power"
+      },
+      "plant_grid_export_power": {
+        "name": "Grid export power"
+      },
+      "total_battery_charging_power": {
+        "name": "Total battery charging power"
+      },
+      "total_battery_discharging_power": {
+        "name": "Total battery discharging power"
+      },
+      "total_grid_import_power": {
+        "name": "Total grid import power"
+      },
+      "total_grid_export_power": {
+        "name": "Total grid export power"
       }
     },
     "binary_sensor": {

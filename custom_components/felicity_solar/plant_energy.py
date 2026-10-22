@@ -34,7 +34,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN
-from .coordinator import FelicityCoordinator, FelicityData
+from .coordinator import FelicityCoordinator, FelicityData, select_primary_flow
 from .counters import LifetimeCounters
 from .entity import FelicityEntity
 from .vendor.felicity_client.models.common import ProductType
@@ -115,6 +115,22 @@ def _self_consumption_today(details: PlantDetails) -> float | None:
 
 def _rated_power(details: PlantDetails) -> float | None:
     return details.rated_power_kwp
+
+
+def _flow_power(data: FelicityData, attribute: str, positive: bool) -> float | None:
+    """One half of a signed power of the plant's inverter.
+
+    The Home Assistant Energy Dashboard needs the charging and the
+    discharging power of the battery, and the import and the export of the
+    grid, as separate sensors to draw the real-time flow.
+    """
+    flow = select_primary_flow(data)
+    if flow is None:
+        return None
+    value = getattr(flow, attribute, None)
+    if value is None:
+        return None
+    return max(0.0, value) if positive else max(0.0, -value)
 
 
 PLANT_ENERGY_DESCRIPTIONS: tuple[FelicityPlantEnergyEntityDescription, ...] = (
@@ -224,6 +240,48 @@ PLANT_ENERGY_DESCRIPTIONS: tuple[FelicityPlantEnergyEntityDescription, ...] = (
         native_unit_of_measurement=UnitOfPower.KILO_WATT,
         suggested_display_precision=1,
         details_fn=_rated_power,
+    ),
+    # Las potencias separadas que necesita el flujo en tiempo real del
+    # panel de Energia de Home Assistant.
+    FelicityPlantEnergyEntityDescription(
+        key="plant_battery_charging_power",
+        translation_key="plant_battery_charging_power",
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfPower.WATT,
+        suggested_display_precision=0,
+        details_fn=lambda _details: None,
+        data_fn=lambda data: _flow_power(data, "battery_power", True),
+    ),
+    FelicityPlantEnergyEntityDescription(
+        key="plant_battery_discharging_power",
+        translation_key="plant_battery_discharging_power",
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfPower.WATT,
+        suggested_display_precision=0,
+        details_fn=lambda _details: None,
+        data_fn=lambda data: _flow_power(data, "battery_power", False),
+    ),
+    FelicityPlantEnergyEntityDescription(
+        key="plant_grid_import_power",
+        translation_key="plant_grid_import_power",
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfPower.WATT,
+        suggested_display_precision=0,
+        details_fn=lambda _details: None,
+        data_fn=lambda data: _flow_power(data, "grid_ac_input_power", True),
+    ),
+    FelicityPlantEnergyEntityDescription(
+        key="plant_grid_export_power",
+        translation_key="plant_grid_export_power",
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfPower.WATT,
+        suggested_display_precision=0,
+        details_fn=lambda _details: None,
+        data_fn=lambda data: _flow_power(data, "grid_ac_input_power", False),
     ),
     # --- Lifetime counters, accumulated from the daily ones -------------
     FelicityPlantEnergyEntityDescription(

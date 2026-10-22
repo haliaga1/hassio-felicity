@@ -327,6 +327,44 @@ TOTAL_DESCRIPTIONS: tuple[FelicityTotalEntityDescription, ...] = (
         suggested_display_precision=0,
         attribute="pv_power",
     ),
+    # Las potencias separadas, que el panel de Energia necesita para el
+    # flujo en tiempo real.
+    FelicityTotalEntityDescription(
+        key="total_battery_charging_power",
+        translation_key="total_battery_charging_power",
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfPower.WATT,
+        suggested_display_precision=0,
+        attribute="battery_charging_power",
+    ),
+    FelicityTotalEntityDescription(
+        key="total_battery_discharging_power",
+        translation_key="total_battery_discharging_power",
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfPower.WATT,
+        suggested_display_precision=0,
+        attribute="battery_discharging_power",
+    ),
+    FelicityTotalEntityDescription(
+        key="total_grid_import_power",
+        translation_key="total_grid_import_power",
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfPower.WATT,
+        suggested_display_precision=0,
+        attribute="grid_import_power",
+    ),
+    FelicityTotalEntityDescription(
+        key="total_grid_export_power",
+        translation_key="total_grid_export_power",
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfPower.WATT,
+        suggested_display_precision=0,
+        attribute="grid_export_power",
+    ),
     FelicityTotalEntityDescription(
         key="total_grid_import_energy",
         translation_key="total_grid_import_energy",
@@ -376,6 +414,15 @@ def _plant_value(data: FelicityData, attribute: str) -> float | None:
     if attribute == "pv_power":
         flow = select_primary_flow(data)
         return flow.pv_power if flow is not None else None
+    if attribute in _POWER_ATTRIBUTES:
+        flow = select_primary_flow(data)
+        if flow is None:
+            return None
+        value = getattr(flow, _POWER_ATTRIBUTES[attribute][0], None)
+        if value is None:
+            return None
+        positive = _POWER_ATTRIBUTES[attribute][1]
+        return max(0.0, value) if positive else max(0.0, -value)
     counters = data.counters
     if counters is None:
         return None
@@ -385,6 +432,15 @@ def _plant_value(data: FelicityData, attribute: str) -> float | None:
         "battery_charging_total": counters.battery_charging_kwh,
         "battery_discharging_total": counters.battery_discharging_kwh,
     }.get(attribute)
+
+
+#: The power attributes of the plant flow, and the sign that is kept.
+_POWER_ATTRIBUTES: dict[str, tuple[str, bool]] = {
+    "battery_charging_power": ("battery_power", True),
+    "battery_discharging_power": ("battery_power", False),
+    "grid_import_power": ("grid_ac_input_power", True),
+    "grid_export_power": ("grid_ac_input_power", False),
+}
 
 
 class FelicityTotalSensor(CoordinatorEntity[FelicityCoordinator], SensorEntity):
