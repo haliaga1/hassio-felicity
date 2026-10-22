@@ -57,6 +57,8 @@ class LifetimeCounters:
     _day: str = ""
     #: Whether the battery energy was already read from the power series.
     seeded: bool = False
+    #: The lifetime counters when the day started, to get the daily ones.
+    _day_start: dict[str, float] = field(default_factory=dict)
 
     def update(self, details: PlantDetails) -> None:
         """Accumulate the daily counters of the plant.
@@ -90,6 +92,34 @@ class LifetimeCounters:
             setattr(self, _ATTRIBUTES[key], getattr(self, _ATTRIBUTES[key]) + delta)
             self._last_daily[key] = value
 
+        if rolled_over or not self._day_start:
+            # El dia nuevo, o la primera vez tras una actualizacion que no
+            # guardaba el inicio del dia.
+            self._roll_day()
+
+    def _roll_day(self) -> None:
+        """Remember the counters of the day that just started."""
+        self._day_start = {
+            "battery_charging": self.battery_charging_kwh,
+            "battery_discharging": self.battery_discharging_kwh,
+        }
+
+    @property
+    def battery_charging_today_kwh(self) -> float:
+        """The energy the battery has charged since the day started."""
+        return max(
+            0.0,
+            self.battery_charging_kwh - self._day_start.get("battery_charging", 0.0),
+        )
+
+    @property
+    def battery_discharging_today_kwh(self) -> float:
+        """The energy the battery has discharged since the day started."""
+        return max(
+            0.0,
+            self.battery_discharging_kwh - self._day_start.get("battery_discharging", 0.0),
+        )
+
     def update_flow(self, flow: EnergyFlow | None, hours: float) -> None:
         """Accumulate the energy the battery has charged or discharged.
 
@@ -100,6 +130,9 @@ class LifetimeCounters:
         """
         if flow is None or hours <= 0:
             return
+        if self._day != date.today().isoformat():
+            self._day = date.today().isoformat()
+            self._roll_day()
         power = flow.battery_power
         if power is None:
             return
@@ -132,6 +165,7 @@ class LifetimeCounters:
             "last_daily": dict(self._last_daily),
             "day": self._day,
             "seeded": self.seeded,
+            "day_start": dict(self._day_start),
         }
 
     @classmethod
@@ -149,6 +183,13 @@ class LifetimeCounters:
             }
         counters._day = str(payload.get("day", ""))
         counters.seeded = bool(payload.get("seeded", False))
+        day_start = payload.get("day_start")
+        if isinstance(day_start, Mapping):
+            counters._day_start = {
+                str(key): float(value)
+                for key, value in day_start.items()
+                if isinstance(value, (int, float))
+            }
         return counters
 
 

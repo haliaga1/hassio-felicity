@@ -159,3 +159,22 @@ class TestBatteryFromTheFlow:
         assert restored.seeded is True
         restored.seed_battery(20.0, 5.0)
         assert restored.battery_charging_kwh == pytest.approx(10.0)
+
+    def test_the_energy_of_the_day_is_measured_from_the_lifetime(self) -> None:
+        counters = LifetimeCounters()
+        counters.seed_battery(10.0, 2.0)
+        counters.update_flow(_flow(1000.0), 1.0)
+        assert counters.battery_charging_today_kwh == pytest.approx(1.0)
+        assert counters.battery_discharging_today_kwh == pytest.approx(0.0)
+
+    def test_a_new_day_starts_the_counter_again(self) -> None:
+        counters = LifetimeCounters()
+        counters.seed_battery(10.0, 2.0)
+        counters.update_flow(_flow(1000.0), 1.0)
+        assert counters.battery_charging_today_kwh == pytest.approx(1.0)
+        # Pretend the last read was yesterday.
+        counters._day = "2000-01-01"
+        counters.update(_details())
+        assert counters.battery_charging_today_kwh == pytest.approx(0.0)
+        counters.update_flow(_flow(1000.0), 1.0)
+        assert counters.battery_charging_today_kwh == pytest.approx(1.0)

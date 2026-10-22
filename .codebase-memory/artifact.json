@@ -1,11 +1,11 @@
 {
     "schema_version": 2,
-    "commit": "b30555f7b5f61644a1cd1dca503329122c3e8dcb",
-    "indexed_at": "2026-10-22T14:28:32Z",
+    "commit": "9c44bfae0474084492f57630a49dfacacf4dbb57",
+    "indexed_at": "2026-10-22T14:31:52Z",
     "project": "Volumes-Development-Proyectos-Antupiren-felicity-metrics",
-    "nodes": 5240,
-    "edges": 10490,
+    "nodes": 5243,
+    "edges": 10523,
     "original_size": 13631488,
-    "compressed_size": 1502950,
+    "compressed_size": 1509497,
     "compression_level": 3
 }

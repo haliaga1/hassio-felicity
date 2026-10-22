@@ -229,8 +229,10 @@ class FelicityCoordinator(DataUpdateCoordinator[FelicityData]):
                 _LOGGER.debug("Could not read the plant details: %s", exc)
 
         device_map = {device.serial_number: device for device in devices}
-        counters = self._update_counters(plant_details, device_map, flows)
+        # La siembra va primero: el inicio del dia se recuerda con el valor
+        # ya sembrado.
         await self._seed_battery_counters()
+        counters = self._update_counters(plant_details, device_map, flows)
 
         data = FelicityData(
             devices=device_map,
@@ -307,7 +309,11 @@ class FelicityCoordinator(DataUpdateCoordinator[FelicityData]):
         only source of its history is the power series of the API. It is
         read once, when the integration starts.
         """
-        if self._counters is None or self._counters.seeded or not self.plant_id:
+        if not self.plant_id:
+            return
+        if self._counters is None:
+            self._counters = LifetimeCounters()
+        if self._counters.seeded:
             return
         try:
             series = await self.client.get_storage_series(self.plant_id)

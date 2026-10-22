@@ -101,14 +101,6 @@ def _grid_export_today(details: PlantDetails) -> float | None:
     return details.today_feed_output_kwh
 
 
-def _battery_charging_today(details: PlantDetails) -> float | None:
-    return details.today_battery_charging_kwh
-
-
-def _battery_discharge_today(details: PlantDetails) -> float | None:
-    return details.today_battery_discharge_kwh
-
-
 def _self_consumption_today(details: PlantDetails) -> float | None:
     return details.today_self_consumption_kwh
 
@@ -209,7 +201,8 @@ PLANT_ENERGY_DESCRIPTIONS: tuple[FelicityPlantEnergyEntityDescription, ...] = (
         state_class=SensorStateClass.TOTAL,
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         suggested_display_precision=2,
-        details_fn=_battery_charging_today,
+        details_fn=lambda _details: None,
+        counter_fn=lambda counters: counters.battery_charging_today_kwh,
         resets_daily=True,
     ),
     FelicityPlantEnergyEntityDescription(
@@ -219,7 +212,8 @@ PLANT_ENERGY_DESCRIPTIONS: tuple[FelicityPlantEnergyEntityDescription, ...] = (
         state_class=SensorStateClass.TOTAL,
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         suggested_display_precision=2,
-        details_fn=_battery_discharge_today,
+        details_fn=lambda _details: None,
+        counter_fn=lambda counters: counters.battery_discharging_today_kwh,
         resets_daily=True,
     ),
     FelicityPlantEnergyEntityDescription(
