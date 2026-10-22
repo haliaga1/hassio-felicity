@@ -270,6 +270,26 @@ def _counter_values(productions: dict[datetime, float], live_value: float) -> di
     return {hour: max(0.0, value + offset) for hour, value in values.items()}
 
 
+def _zero_openings(hourly: dict[datetime, float], tz: timezone) -> dict[datetime, float]:
+    """Return the opening values of a counter that did not exist before.
+
+    The counters the integration accumulates itself only know what happened
+    since it started running, so their value at the beginning of the month
+    and of the year is zero.
+    """
+    if not hourly:
+        return {}
+    local = min(hourly).astimezone(tz)
+    month_start = local.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    year_start = local.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+    return {
+        month_start - timedelta(hours=1): 0.0,
+        month_start: 0.0,
+        year_start - timedelta(hours=1): 0.0,
+        year_start: 0.0,
+    }
+
+
 def _day_starts(samples: list[float], now: datetime, tz: timezone) -> list[tuple[datetime, int]]:
     """Return the (start, first index) of every day present in the series."""
     local_now = now.astimezone(tz)
@@ -532,6 +552,7 @@ async def main() -> int:
                 except (TypeError, ValueError):
                     live_value = sum(hourly.values())
                 absolute[statistic] = _counter_values(hourly, live_value)
+                openings[statistic] = _zero_openings(hourly, tz)
 
         # --- Los agregados: la suma de las plantas ------------------------
         for suffix, statistic_name in AGGREGATE_SERIES:

@@ -82,7 +82,9 @@ def _by_unique_id(registry: dict[str, str], suffixes: tuple[str, ...]) -> list[s
     return found
 
 
-def _plant_cards(plant_id: str, known: set[str], registry: dict[str, str]) -> list[dict[str, Any]]:
+def _plant_cards(
+    plant_id: str, prefix: str, known: set[str], registry: dict[str, str]
+) -> list[dict[str, Any]]:
     """Build the cards of a plant's page, mirroring the official app."""
     cards: list[dict[str, Any]] = []
 
@@ -163,8 +165,13 @@ def _plant_cards(plant_id: str, known: set[str], registry: dict[str, str]) -> li
             }
         )
 
-    # El estado de carga de la bateria.
-    soc = _by_unique_id(registry, (f"{plant_id}_battery_state_of_charge",))
+    # El estado de carga de la bateria. Es una entidad del dispositivo de
+    # bateria, cuyo id empieza por el nombre de la planta, no por su id.
+    soc = [
+        entity
+        for entity in sorted(known)
+        if entity.startswith(f"sensor.{prefix}_") and entity.endswith("_battery_state_of_charge")
+    ]
     if soc:
         cards.append(
             {
@@ -229,6 +236,8 @@ def _summary_cards(known: set[str], registry: dict[str, str]) -> list[dict[str, 
         ),
     )
     cards: list[dict[str, Any]] = []
+    # El selector de fechas del que leen las tarjetas de energia.
+    cards.append({"type": "energy-date-selection"})
     if totals:
         cards.append(
             {
@@ -282,7 +291,7 @@ def build_dashboards(
             "cards": _summary_cards(known, registry),
         }
     ]
-    for title, _prefix, slug in PLANTS:
+    for title, prefix, slug in PLANTS:
         plant_id = plant_ids.get(title)
         if plant_id is None:
             print(f"  ! no se encontro la planta {title}")
@@ -292,7 +301,7 @@ def build_dashboards(
                 "title": title,
                 "path": slug,
                 "type": "masonry",
-                "cards": _plant_cards(plant_id, known, registry),
+                "cards": _plant_cards(plant_id, prefix, known, registry),
             }
         )
     return {
@@ -329,6 +338,27 @@ async def _registry(session: aiohttp.ClientSession, url: str, token: str) -> dic
         for entry in entries
         if entry.get("unique_id") and entry.get("entity_id")
     }
+
+
+async def _delete_dashboard(ws: aiohttp.ClientWSMessage, dashboard_id: str, next_id: int) -> None:
+    """Delete a dashboard, if it exists.
+
+    The first versions of this page created one dashboard per plant; they
+    are all replaced by the views of the single "Felicity Solar" page.
+    """
+    await ws.send_json({"id": next_id, "type": "lovelace/dashboards/list"})
+    existing = await ws.receive_json()
+    if not any(d.get("id") == dashboard_id for d in existing.get("result", [])):
+        return
+    await ws.send_json(
+        {
+            "id": next_id + 1,
+            "type": "lovelace/dashboards/delete",
+            "dashboard_id": dashboard_id,
+        }
+    )
+    await ws.receive_json()
+    print(f"  {dashboard_id:26} borrado (dashboard antiguo)")
 
 
 async def _save_dashboard(
@@ -409,6 +439,9 @@ async def main() -> int:
             await ws.receive_json()
 
             next_id = 10
+            for old_id in ("felicity_solar_antares", "felicity_solar_antupiren"):
+                await _delete_dashboard(ws, old_id, next_id)
+                next_id += 1
             for url_path, spec in dashboards.items():
                 result, next_id = await _save_dashboard(ws, url_path, spec["title"], spec, next_id)
                 print(f"  {url_path:26} {result}")
