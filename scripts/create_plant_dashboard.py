@@ -37,38 +37,68 @@ PLANTS: tuple[tuple[str, str, str], ...] = (
 DASHBOARD_ICON = "mdi:solar-power"
 
 
-def _entities_of(prefix: str, known: set[str], suffix: str) -> list[str]:
-    """Return the entities of a plant that really exist."""
-    candidate = f"sensor.{prefix}_{suffix}"
-    return [candidate] if candidate in known else []
+def _flow_entities(plant_id: str, registry: dict[str, str]) -> list[str]:
+    """Return the flow state sensors of a plant."""
+    return _by_unique_id(
+        registry,
+        (
+            f"{plant_id}_plant_grid_flow",
+            f"{plant_id}_plant_pv_flow",
+            f"{plant_id}_plant_battery_flow",
+        ),
+    )
 
 
-def _flow_entities(prefix: str, known: set[str]) -> list[str]:
-    """Return the flow state sensors of a plant.
+def _plant_ids(registry: dict[str, str], states: dict[str, Any]) -> dict[str, str]:
+    """Map the plant name to the id used in the unique ids.
 
-    They are looked up by their unique identifier, which is stable, because
-    the entity id depends on the translated name of the card.
+    The unique id of a plant sensor starts with the plant id (a number),
+    not with the name, so the mapping is read from the ``plant_name``
+    attribute of the entities themselves.
     """
-    wanted = (f"{prefix}_grid_flow", f"{prefix}_pv_flow", f"{prefix}_battery_flow")
+    mapping: dict[str, str] = {}
+    for unique_id, entity_id in registry.items():
+        state = states.get(entity_id, {})
+        name = state.get("attributes", {}).get("plant_name")
+        if not name:
+            continue
+        mapping[str(name)] = unique_id.split("_", 1)[0]
+    return mapping
+
+
+def _by_unique_id(registry: dict[str, str], suffixes: tuple[str, ...]) -> list[str]:
+    """Resolve entities by their unique identifier.
+
+    The entity id of a sensor is built from the *translated* name of the
+    card, so it changes with the wording; the unique id does not. Every
+    lookup goes through here.
+    """
     found: list[str] = []
-    for entity_id in sorted(known):
-        if entity_id.startswith("sensor.") and entity_id.endswith(wanted):
-            found.append(entity_id)
+    for suffix in suffixes:
+        for unique_id, entity_id in registry.items():
+            if unique_id.endswith(suffix):
+                found.append(entity_id)
+                break
     return found
 
 
-def _plant_cards(prefix: str, known: set[str]) -> list[dict[str, Any]]:
+def _plant_cards(plant_id: str, known: set[str], registry: dict[str, str]) -> list[dict[str, Any]]:
     """Build the cards of a plant's page, mirroring the official app."""
     cards: list[dict[str, Any]] = []
 
     # El flujo en tiempo real, como en la app oficial: PV, carga, bateria
     # cargando/descargando y entrada/salida de red.
-    realtime = _entities_of(prefix, known, "plant_pv_power")
-    realtime += _entities_of(prefix, known, "plant_load_power")
-    realtime += _entities_of(prefix, known, "plant_battery_charging_power")
-    realtime += _entities_of(prefix, known, "plant_battery_discharging_power")
-    realtime += _entities_of(prefix, known, "plant_grid_import_power")
-    realtime += _entities_of(prefix, known, "plant_grid_export_power")
+    realtime = _by_unique_id(
+        registry,
+        (
+            f"{plant_id}_plant_pv_power",
+            f"{plant_id}_plant_load_power",
+            f"{plant_id}_plant_battery_charging_power",
+            f"{plant_id}_plant_battery_discharging_power",
+            f"{plant_id}_plant_grid_import_power",
+            f"{plant_id}_plant_grid_export_power",
+        ),
+    )
     if realtime:
         cards.append(
             {
@@ -82,7 +112,7 @@ def _plant_cards(prefix: str, known: set[str]) -> list[dict[str, Any]]:
     # El estado de cada flujo: de donde viene la energia y donde va.
     # Se buscan por identificador unico, porque el entity_id depende del
     # nombre traducido de la tarjeta.
-    flows = _flow_entities(prefix, known)
+    flows = _flow_entities(plant_id, registry)
     if flows:
         cards.append(
             {
@@ -94,12 +124,17 @@ def _plant_cards(prefix: str, known: set[str]) -> list[dict[str, Any]]:
         )
 
     # "Datos de Hoy": PV, carga, descarga, entrada y salida de red.
-    hoy = _entities_of(prefix, known, "plant_pv_energy_today")
-    hoy += _entities_of(prefix, known, "plant_load_energy_today")
-    hoy += _entities_of(prefix, known, "plant_battery_charging_today")
-    hoy += _entities_of(prefix, known, "plant_battery_discharge_today")
-    hoy += _entities_of(prefix, known, "plant_grid_import_today")
-    hoy += _entities_of(prefix, known, "plant_grid_export_today")
+    hoy = _by_unique_id(
+        registry,
+        (
+            f"{plant_id}_plant_pv_energy_today",
+            f"{plant_id}_plant_load_energy_today",
+            f"{plant_id}_plant_battery_charging_today",
+            f"{plant_id}_plant_battery_discharge_today",
+            f"{plant_id}_plant_grid_import_today",
+            f"{plant_id}_plant_grid_export_today",
+        ),
+    )
     if hoy:
         cards.append(
             {
@@ -111,8 +146,13 @@ def _plant_cards(prefix: str, known: set[str]) -> list[dict[str, Any]]:
         )
 
     # "Datos Estadisticos": mes, ano y total.
-    stats = _entities_of(prefix, known, "plant_pv_energy_this_month")
-    stats += _entities_of(prefix, known, "plant_pv_energy_total")
+    stats = _by_unique_id(
+        registry,
+        (
+            f"{plant_id}_plant_pv_energy_month",
+            f"{plant_id}_plant_pv_energy_total",
+        ),
+    )
     if stats:
         cards.append(
             {
@@ -124,11 +164,7 @@ def _plant_cards(prefix: str, known: set[str]) -> list[dict[str, Any]]:
         )
 
     # El estado de carga de la bateria.
-    soc = [
-        entity
-        for entity in sorted(known)
-        if entity.startswith(f"sensor.{prefix}_") and entity.endswith("_battery_state_of_charge")
-    ]
+    soc = _by_unique_id(registry, (f"{plant_id}_battery_state_of_charge",))
     if soc:
         cards.append(
             {
@@ -142,7 +178,7 @@ def _plant_cards(prefix: str, known: set[str]) -> list[dict[str, Any]]:
         )
 
     # La potencia de hoy, en su grafico.
-    power = _entities_of(prefix, known, "plant_pv_power")
+    power = _by_unique_id(registry, (f"{plant_id}_plant_pv_power",))
     if power:
         cards.append(
             {
@@ -154,7 +190,7 @@ def _plant_cards(prefix: str, known: set[str]) -> list[dict[str, Any]]:
         )
 
     # El grafico de generacion de la pagina de Energia, pero de esta planta.
-    total = _entities_of(prefix, known, "plant_pv_energy_total")
+    total = _by_unique_id(registry, (f"{plant_id}_plant_pv_energy_total",))
     if total:
         cards.append(
             {
@@ -180,19 +216,18 @@ def _plant_cards(prefix: str, known: set[str]) -> list[dict[str, Any]]:
     return cards
 
 
-def _summary_cards(known: set[str]) -> list[dict[str, Any]]:
+def _summary_cards(known: set[str], registry: dict[str, str]) -> list[dict[str, Any]]:
     """Build the cards of the summary page."""
-    totals = [
-        entity
-        for entity in (
-            "sensor.felicity_solar_total_pv_energy_all_plants",
-            "sensor.felicity_solar_total_grid_import_all_plants",
-            "sensor.felicity_solar_total_grid_export_all_plants",
-            "sensor.felicity_solar_total_battery_charging_all_plants",
-            "sensor.felicity_solar_total_battery_discharge_all_plants",
-        )
-        if entity in known
-    ]
+    totals = _by_unique_id(
+        registry,
+        (
+            "felicity_solar_total_pv_energy_all_plants",
+            "felicity_solar_total_grid_import_all_plants",
+            "felicity_solar_total_grid_export_all_plants",
+            "felicity_solar_total_battery_charging_all_plants",
+            "felicity_solar_total_battery_discharge_all_plants",
+        ),
+    )
     cards: list[dict[str, Any]] = []
     if totals:
         cards.append(
@@ -203,7 +238,7 @@ def _summary_cards(known: set[str]) -> list[dict[str, Any]]:
                 "entities": totals,
             }
         )
-    power = _entities_of("felicity_solar", known, "total_pv_power_all_plants")
+    power = _by_unique_id(registry, ("felicity_solar_total_pv_power_all_plants",))
     if power:
         cards.append(
             {
@@ -231,7 +266,9 @@ def _summary_cards(known: set[str]) -> list[dict[str, Any]]:
     return cards
 
 
-def build_dashboards(known: set[str]) -> dict[str, dict[str, Any]]:
+def build_dashboards(
+    known: set[str], registry: dict[str, str], plant_ids: dict[str, str]
+) -> dict[str, dict[str, Any]]:
     """Build the configuration of the dashboard.
 
     A single dashboard with one **view per plant**: Home Assistant shows the
@@ -242,16 +279,20 @@ def build_dashboards(known: set[str]) -> dict[str, dict[str, Any]]:
             "title": "Resumen",
             "path": "resumen",
             "type": "masonry",
-            "cards": _summary_cards(known),
+            "cards": _summary_cards(known, registry),
         }
     ]
-    for title, prefix, slug in PLANTS:
+    for title, _prefix, slug in PLANTS:
+        plant_id = plant_ids.get(title)
+        if plant_id is None:
+            print(f"  ! no se encontro la planta {title}")
+            continue
         views.append(
             {
                 "title": title,
                 "path": slug,
                 "type": "masonry",
-                "cards": _plant_cards(prefix, known),
+                "cards": _plant_cards(plant_id, known, registry),
             }
         )
     return {
@@ -262,10 +303,32 @@ def build_dashboards(known: set[str]) -> dict[str, dict[str, Any]]:
     }
 
 
+async def _states(session: aiohttp.ClientSession, url: str) -> dict[str, Any]:
+    """Return the states of the instance, keyed by entity id."""
+    async with session.get(f"{url}/api/states") as response:
+        return {state["entity_id"]: state for state in await response.json()}
+
+
 async def _entities(session: aiohttp.ClientSession, url: str) -> set[str]:
     """Return the entity ids of the instance."""
-    async with session.get(f"{url}/api/states") as response:
-        return {state["entity_id"] for state in await response.json()}
+    return set(await _states(session, url))
+
+
+async def _registry(session: aiohttp.ClientSession, url: str, token: str) -> dict[str, str]:
+    """Return the unique id -> entity id map of the instance."""
+    ws_url = url.replace("http://", "ws://").replace("https://", "wss://")
+    async with session.ws_connect(f"{ws_url}/api/websocket") as ws:
+        await ws.receive_json()
+        await ws.send_json({"type": "auth", "access_token": token})
+        await ws.receive_json()
+        await ws.send_json({"id": 1, "type": "config/entity_registry/list"})
+        response = await ws.receive_json()
+    entries = response.get("result") or []
+    return {
+        str(entry["unique_id"]): str(entry["entity_id"])
+        for entry in entries
+        if entry.get("unique_id") and entry.get("entity_id")
+    }
 
 
 async def _save_dashboard(
@@ -329,7 +392,10 @@ async def main() -> int:
     headers = {"Authorization": f"Bearer {token}"}
     async with aiohttp.ClientSession(headers=headers) as session:
         known = await _entities(session, url)
-        dashboards = build_dashboards(known)
+        states = await _states(session, url)
+        registry = await _registry(session, url, token)
+        plant_ids = _plant_ids(registry, states)
+        dashboards = build_dashboards(known, registry, plant_ids)
         if args.dry_run:
             import json
 
