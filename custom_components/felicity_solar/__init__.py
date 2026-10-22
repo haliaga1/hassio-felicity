@@ -19,6 +19,7 @@ from .const import (
     CONF_API_NODE,
     CONF_EMAIL,
     CONF_PASSWORD,
+    CONF_PLANT_ID,
     DOMAIN,
     WS_URLS,
 )
@@ -34,7 +35,7 @@ TOKEN_STORAGE_VERSION = 1
 
 #: Where the accumulated energy counters are cached.
 COUNTERS_STORAGE_KEY = f"{DOMAIN}.counters"
-COUNTERS_STORAGE_VERSION = 1
+COUNTERS_STORAGE_VERSION = 2
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -55,9 +56,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             client.auth.restore(token)
             _LOGGER.debug("Restored a cached FSolar token for %s", entry.data[CONF_EMAIL])
 
-    counters_store: Store[dict[str, Any]] = Store(
-        hass, COUNTERS_STORAGE_VERSION, COUNTERS_STORAGE_KEY
-    )
+    # Cada planta tiene sus propios contadores: la clave del store lleva el
+    # identificador de la planta, o el de la entrada si no hay.
+    counters_key = COUNTERS_STORAGE_KEY
+    plant_id = entry.data.get(CONF_PLANT_ID)
+    if plant_id:
+        counters_key = f"{counters_key}.{plant_id}"
+    else:
+        counters_key = f"{counters_key}.{entry.entry_id}"
+    counters_store: Store[dict[str, Any]] = Store(hass, COUNTERS_STORAGE_VERSION, counters_key)
     counters = LifetimeCounters()
     stored_counters = await counters_store.async_load()
     if stored_counters:
